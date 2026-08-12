@@ -4,13 +4,14 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
+from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
-from .excel_io import get_or_create_supplier, import_tender
+from .excel_io import export_purchase_proposal_xlsx, get_or_create_supplier, import_tender
 from .models import Item, Quote, Supplier, Tender, TenderStatus
 
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
@@ -263,3 +264,114 @@ async def save_quotes(tender_id: int, request: Request, session: Session = Depen
 
     session.commit()
     return RedirectResponse(f"/tenders/{tender_id}#cs-view", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Award review (default-to-lowest + manual override) and Purchase Proposal
+# ---------------------------------------------------------------------------
+
+
+@app.get("/tenders/{tender_id}/award", response_class=HTMLResponse)
+def award_review(tender_id: int, request: Request, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    awarded_items, cs = resolve_awarded_items(session, tender_id)
+    lowest_by_item_id = {r.item.id: r for r in cs.item_results}
+
+    item_ids = [ai.item.id for ai in awarded_items]
+    quotes = (
+        session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
+    )
+    options_by_item: dict = {}
+    for q in quotes:
+        if q.rate is None:
+            continue
+        supplier = cs.suppliers_by_id.get(q.supplier_id)
+        name = supplier.name if supplier else f"Supplier {q.supplier_id}"
+        options_by_item.setdefault(q.item_id, []).append((q.supplier_id, name, q.rate))
+    for opts in options_by_item.values():
+        opts.sort(key=lambda o: o[2])
+
+    rows = []
+    for ai in awarded_items:
+        result = lowest_by_item_id[ai.item.id]
+        rows.append(
+            {
+                "item": ai.item,
+                "lowest_name": cs.suppliers_by_id[result.lowest_supplier_id].name
+                if result.lowest_supplier_id
+                else None,
+                "lowest_rate": result.lowest_rate,
+                "awarded_supplier_id": ai.awarded_supplier_id,
+                "awarded_name": cs.suppliers_by_id[ai.awarded_supplier_id].name
+                if ai.awarded_supplier_id
+                else None,
+                "awarded_rate": ai.awarded_rate,
+                "is_override": ai.is_override,
+                "invalid_override": ai.invalid_override,
+                "override_reason": ai.override_reason,
+                "options": options_by_item.get(ai.item.id, []),
+            }
+        )
+
+    return templates.TemplateResponse(request, "award_review.html", {"tender": tender, "rows": rows})
+
+
+@app.post("/tenders/{tender_id}/items/{item_id}/award")
+def set_award_override(
+    tender_id: int,
+    item_id: int,
+    awarded_supplier_id: str = Form(""),
+    award_reason: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    item = session.get(Item, item_id)
+    if item is None or item.tender_id != tender_id:
+        raise HTTPException(404, "Item not found")
+
+    cs = build_comparative_statement(session, tender_id)
+    result = next((r for r in cs.item_results if r.item.id == item_id), None)
+    if result is None:
+        raise HTTPException(404, "Item not found in this tender's comparative statement")
+
+    quotes = session.exec(select(Quote).where(Quote.item_id == item_id)).all()
+    rate_map = {q.supplier_id: q.rate for q in quotes if q.rate is not None}
+
+    item.awarded_supplier_id = int(awarded_supplier_id) if awarded_supplier_id.strip() else None
+    item.award_reason = award_reason.strip() or None
+
+    try:
+        validate_override(item, result, rate_map)
+    except ValueError as e:
+        session.rollback()  # discard the in-memory attribute changes above
+        raise HTTPException(400, str(e))
+
+    session.add(item)
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}/award", status_code=303)
+
+
+@app.get("/tenders/{tender_id}/proposal", response_class=HTMLResponse)
+def purchase_proposal_view(tender_id: int, request: Request, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    proposal = build_purchase_proposal(session, tender_id)
+    return templates.TemplateResponse(request, "purchase_proposal.html", {"tender": tender, "proposal": proposal})
+
+
+@app.get("/tenders/{tender_id}/proposal/export")
+def export_proposal(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    proposal = build_purchase_proposal(session, tender_id)
+    content = export_purchase_proposal_xlsx(proposal)
+    filename = f"purchase-proposal-tender-{tender_id}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

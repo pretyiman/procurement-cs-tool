@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Award Review - {{ tender.inquiry_no }}{% endblock %}
+{% block content %}
+<h1>{{ tender.inquiry_no }} &mdash; Award Review</h1>
+<p class="muted">
+  Default award is always the lowest quoted rate. Override only if you need
+  to award a different (quoting) firm - a reason is required whenever the
+  override isn't the lowest bidder.
+</p>
+<p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal &rarr;</a></p>
+
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>Ser</th><th>Description</th><th>Lowest</th><th>Current Award</th><th>Set / change award</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.item.ser }}</td>
+        <td>{{ row.item.description }}</td>
+        <td>
+          {% if row.lowest_name %}{{ row.lowest_name }} @ {{ '%.2f'|format(row.lowest_rate) }}
+          {% else %}<span class="nq">no quotes</span>{% endif %}
+        </td>
+        <td>
+          {% if row.invalid_override %}
+            <span class="nq">override invalid (supplier no longer quotes this item) - needs review</span>
+          {% elif row.awarded_name %}
+            {{ row.awarded_name }} @ {{ '%.2f'|format(row.awarded_rate) }}
+            {% if row.is_override %}<br><small class="muted">override: {{ row.override_reason }}</small>{% endif %}
+          {% else %}
+            <span class="nq">unresolved (NQ by every firm)</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.options %}
+          <form method="post" action="/tenders/{{ tender.id }}/items/{{ row.item.id }}/award" class="row-form">
+            <div class="field" style="min-width:170px">
+              <select name="awarded_supplier_id">
+                <option value="">(default - lowest)</option>
+                {% for sid, name, rate in row.options %}
+                <option value="{{ sid }}" {{ 'selected' if row.awarded_supplier_id == sid and row.is_override else '' }}>
+                  {{ name }} @ {{ '%.2f'|format(rate) }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field" style="min-width:200px">
+              <input type="text" name="award_reason" placeholder="Reason (required if not lowest)"
+                     value="{{ row.override_reason or '' }}">
+            </div>
+            <button type="submit">Save</button>
+          </form>
+          {% else %}
+          <span class="nq">no firm quoted this item</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

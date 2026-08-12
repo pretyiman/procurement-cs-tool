@@ -11,13 +11,18 @@ Expected shape (see docs/data-model.md and CS.xlsx):
 """
 
 import re
+from io import BytesIO
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 from sqlmodel import Session, select
 
 from .models import Item, Quote, Supplier, Tender, TenderStatus
+
+if TYPE_CHECKING:
+    from .award_engine import PurchaseProposal
 
 _GST_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*GST", re.IGNORECASE)
 _NQ_VALUES = {"NQ", "-", ""}
@@ -137,3 +142,83 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
     session.commit()
     session.refresh(tender)
     return tender
+
+
+def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
+    """Render a PurchaseProposal (app/award_engine.py) as an .xlsx workbook:
+    one block per awarded firm, an unresolved-items block if any, and a
+    grand total - for internal sign-off before contract drafts go out."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Purchase Proposal"
+
+    bold = Font(bold=True)
+    item_headers = ["Ser", "Part No", "Description", "Unit", "Qty", "Rate", "Total Value"]
+
+    row = 1
+    ws.cell(row=row, column=1, value=f"PURCHASE PROPOSAL - {proposal.tender.inquiry_no}").font = Font(
+        bold=True, size=13
+    )
+    row += 2
+
+    for group in proposal.firm_groups:
+        ws.cell(row=row, column=1, value=f"Firm: {group.supplier_name}").font = bold
+        row += 1
+
+        for col, header in enumerate(item_headers, start=1):
+            ws.cell(row=row, column=col, value=header).font = bold
+        row += 1
+
+        for ai in group.items:
+            item = ai.item
+            ws.cell(row=row, column=1, value=item.ser)
+            ws.cell(row=row, column=2, value=item.part_no)
+            ws.cell(row=row, column=3, value=item.description)
+            ws.cell(row=row, column=4, value=item.unit)
+            ws.cell(row=row, column=5, value=item.qty)
+            ws.cell(row=row, column=6, value=ai.awarded_rate)
+            ws.cell(row=row, column=7, value=ai.total_value)
+            row += 1
+
+        ws.cell(row=row, column=6, value="Store Value").font = bold
+        ws.cell(row=row, column=7, value=group.store_value)
+        row += 1
+        ws.cell(row=row, column=6, value="GST").font = bold
+        ws.cell(row=row, column=7, value=group.gst_amount)
+        row += 1
+        ws.cell(row=row, column=6, value="Contract Value").font = bold
+        ws.cell(row=row, column=7, value=group.contract_value)
+        row += 3
+
+    if proposal.unresolved_items:
+        ws.cell(row=row, column=1, value="Unresolved items (no valid award - not quoted / needs review)").font = bold
+        row += 1
+        for col, header in enumerate(["Ser", "Part No", "Description", "Unit", "Qty"], start=1):
+            ws.cell(row=row, column=col, value=header).font = bold
+        row += 1
+        for item in proposal.unresolved_items:
+            ws.cell(row=row, column=1, value=item.ser)
+            ws.cell(row=row, column=2, value=item.part_no)
+            ws.cell(row=row, column=3, value=item.description)
+            ws.cell(row=row, column=4, value=item.unit)
+            ws.cell(row=row, column=5, value=item.qty)
+            row += 1
+        row += 2
+
+    ws.cell(row=row, column=1, value="GRAND TOTAL").font = bold
+    ws.cell(row=row, column=2, value=f"Items: {proposal.grand_total.item_count}")
+    ws.cell(row=row, column=6, value="Store Value").font = bold
+    ws.cell(row=row, column=7, value=proposal.grand_total.store_value)
+    row += 1
+    ws.cell(row=row, column=6, value="GST").font = bold
+    ws.cell(row=row, column=7, value=proposal.grand_total.gst_amount)
+    row += 1
+    ws.cell(row=row, column=6, value="Contract Value").font = bold
+    ws.cell(row=row, column=7, value=proposal.grand_total.contract_value)
+
+    for col_letter, width in zip("ABCDEFG", [6, 12, 36, 8, 8, 12, 14]):
+        ws.column_dimensions[col_letter].width = width
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()

@@ -3,6 +3,10 @@
 {% block content %}
 <h1>{{ tender.inquiry_no }}</h1>
 <p class="muted">GST {{ tender.gst_percent }}% &middot; Status: {{ tender.status.value }}</p>
+<p>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/award">Award Review</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
+</p>
 
 <div class="card">
   <h2 style="margin-top:0">Add item</h2>

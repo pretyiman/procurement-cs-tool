@@ -109,7 +109,7 @@ CS (from Phase 2's engine) for the tender.
 ---
 
 ## Phase 4 — Award engine + Purchase Proposal
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Let an officer override an item's awarded supplier (with
 required reason) instead of always taking computed-lowest. Generate the
@@ -130,6 +130,19 @@ items called out separately.
 - Setting an override on one item moves it to the new firm's group, updates
   both firms' subtotals correctly, and requires a reason (rejected without
   one).
+
+**Confirmed:** `pytest tests/` (13 tests) passes, including that Purchase
+Proposal groupings exactly equal `cs_engine`'s firm summaries when no
+overrides exist, that an override moves an item and updates both firms'
+subtotals by precisely the item's value, that an override without a
+reason (when not the lowest bidder) is rejected, and that awarding to a
+supplier who didn't quote the item is rejected. Also manually verified
+against a running server: overrode Ser 3 (fixture item, Awan 150 -> SNS
+350 via Award Review with a reason) and confirmed the Purchase Proposal
+page, its Excel export, and the underlying numbers all agreed exactly
+(Awan 10 items/210,384; SNS 11 items/211,405; grand total 421,789),
+including the unresolved-items block (Ser 1 & 21) and the override reason
+shown inline.
 
 ---
 

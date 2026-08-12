@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Purchase Proposal - {{ tender.inquiry_no }}{% endblock %}
+{% block content %}
+<h1>{{ tender.inquiry_no }} &mdash; Purchase Proposal</h1>
+<p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/award">Award Review</a></p>
+<p><a class="btn" href="/tenders/{{ tender.id }}/proposal/export">Export to Excel</a></p>
+
+{% for group in proposal.firm_groups %}
+<h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total Value</th></tr>
+    </thead>
+    <tbody>
+      {% for ai in group.items %}
+      <tr>
+        <td>{{ ai.item.ser }}</td>
+        <td>{{ ai.item.part_no }}</td>
+        <td>{{ ai.item.description }}
+          {% if ai.is_override %}<br><small class="muted">override: {{ ai.override_reason }}</small>{% endif %}
+        </td>
+        <td>{{ ai.item.unit }}</td>
+        <td class="num">{{ ai.item.qty }}</td>
+        <td class="num">{{ '%.2f'|format(ai.awarded_rate) }}</td>
+        <td class="num">{{ '%.2f'|format(ai.total_value) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="totals-row">
+        <td colspan="6">Store Value / GST / Contract Value</td>
+        <td class="num">{{ '%.2f'|format(group.store_value) }} / {{ '%.2f'|format(group.gst_amount) }} / {{ '%.2f'|format(group.contract_value) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty">No items have been awarded to any firm yet.</p>
+{% endfor %}
+
+{% if proposal.unresolved_items %}
+<h2>Unresolved items</h2>
+<div class="card">
+  <p class="muted">Not quoted by any firm, or an override became invalid - resolve these in Award Review before finalizing.</p>
+  <table>
+    <thead><tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th></tr></thead>
+    <tbody>
+      {% for item in proposal.unresolved_items %}
+      <tr>
+        <td>{{ item.ser }}</td><td>{{ item.part_no }}</td><td>{{ item.description }}</td>
+        <td>{{ item.unit }}</td><td class="num">{{ item.qty }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h2>Grand Total</h2>
+<div class="card">
+  <table>
+    <tbody>
+      <tr class="totals-row">
+        <td>Items</td><td class="num">{{ proposal.grand_total.item_count }}</td>
+      </tr>
+      <tr><td>Store Value</td><td class="num">{{ '%.2f'|format(proposal.grand_total.store_value) }}</td></tr>
+      <tr><td>GST</td><td class="num">{{ '%.2f'|format(proposal.grand_total.gst_amount) }}</td></tr>
+      <tr class="totals-row"><td>Contract Value</td><td class="num">{{ '%.2f'|format(proposal.grand_total.contract_value) }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
