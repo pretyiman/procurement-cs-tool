@@ -10,6 +10,23 @@
   {% endif %}
 </p>
 
+<div class="card">
+  <p class="muted" style="margin-top:0">Status: <strong>{{ tender.status.value }}</strong></p>
+  {% if tender.status.value == "draft" and proposal.firm_groups %}
+  <form method="post" action="/tenders/{{ tender.id }}/generate-proposal">
+    <button type="submit">Mark proposal as generated</button>
+  </form>
+  {% elif tender.status.value == "proposal_generated" %}
+  <form method="post" action="/tenders/{{ tender.id }}/mark-awarded">
+    <button type="submit">Finalize - mark tender as awarded</button>
+  </form>
+  {% elif tender.status.value == "awarded" %}
+  <p class="muted" style="margin-bottom:0">This tender is finalized - all contracts have been awarded.</p>
+  {% else %}
+  <p class="muted" style="margin-bottom:0">Award at least one item (Award Review) before generating the proposal.</p>
+  {% endif %}
+</div>
+
 {% for group in proposal.firm_groups %}
 <h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)
   <a class="btn" style="font-size:0.8rem;padding:0.3rem 0.7rem;vertical-align:middle;"

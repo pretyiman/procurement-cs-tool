@@ -653,6 +653,33 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
     return templates.TemplateResponse(request, "purchase_proposal.html", {"tender": tender, "proposal": proposal})
 
 
+@app.post("/tenders/{tender_id}/generate-proposal")
+def generate_proposal(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    proposal = build_purchase_proposal(session, tender_id)
+    if not proposal.firm_groups:
+        raise HTTPException(400, "Award at least one item before generating the proposal")
+    tender.status = TenderStatus.proposal_generated
+    session.add(tender)
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
+
+
+@app.post("/tenders/{tender_id}/mark-awarded")
+def mark_awarded(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    if tender.status != TenderStatus.proposal_generated:
+        raise HTTPException(400, "Generate the proposal before finalizing the award")
+    tender.status = TenderStatus.awarded
+    session.add(tender)
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
+
+
 @app.get("/tenders/{tender_id}/proposal/export")
 def export_proposal(tender_id: int, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
