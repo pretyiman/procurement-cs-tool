@@ -41,7 +41,7 @@ actual HTTP API (`POST /tenders/import` then `GET /tenders/1`) returned
 ---
 
 ## Phase 2 — Comparative Statement calculation engine
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Pure functions that take a Tender's items/quotes and produce the
 derived values in `docs/data-model.md` ("Derived" section): lowest
@@ -65,6 +65,13 @@ rate/firm per item, item totals, per-firm summary, grand totals.
 Do not proceed to Phase 3 until this phase's numbers match exactly —
 everything downstream (proposal, contract values) depends on this being
 correct.
+
+**Confirmed:** `pytest tests/` (7 tests) passes. `app/cs_engine.py` exactly
+reproduces the fixture's firm summaries (SNS 10/209,655/37,737.90/
+247,392.90; Awan 11/211,134/38,004.12/249,138.12) and grand total
+(21/420,789/75,742.02/496,531.02); M/s Libra Enterprises (won 0 items)
+correctly excluded from the summary; Ser 1 & 21 (NQ by all) correctly
+excluded from totals but present in `item_results`.
 
 ---
 
