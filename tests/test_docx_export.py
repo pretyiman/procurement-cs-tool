@@ -1,13 +1,15 @@
+import datetime
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 from docx import Document
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.award_engine import build_purchase_proposal
-from app.docx_export import generate_contract_draft
+from app.cs_engine import build_comparative_statement
+from app.docx_export import generate_contract_award, generate_purchase_proposal_doc
 from app.excel_io import import_tender
 from app.models import Supplier
 
@@ -22,21 +24,38 @@ def _fresh_session() -> Session:
     return Session(engine)
 
 
-def test_contract_draft_item_schedule_matches_proposal_exactly():
+def _full_text(doc: Document) -> str:
+    parts = [p.text for p in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.extend(c.text for c in row.cells)
+    return "\n".join(parts)
+
+
+# --- Contract Award (CA) ----------------------------------------------------
+
+
+def test_contract_award_item_schedule_matches_proposal_exactly():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
         proposal = build_purchase_proposal(session, tender.id)
         group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
+        supplier.address = "Test Address"
+        session.add(supplier)
+        session.commit()
 
-        content = generate_contract_draft(proposal.tender, group, supplier)
+        content = generate_contract_award(
+            proposal.tender, group, supplier, contract_no="TEST-001",
+            contract_date=datetime.date(2026, 8, 12), agreement_date=datetime.date(2026, 8, 12),
+        )
         doc = Document(BytesIO(content))
 
-        table = doc.tables[0]
-        # header row + one row per awarded item, no leftover {%tr%} marker rows
-        assert len(table.rows) == 1 + len(group.items)
+        # tables[0] is the static "WARNING" notice, tables[1] is the item schedule.
+        table = doc.tables[1]
+        assert len(table.rows) == 1 + len(group.items) + 3  # header + items + 3 totals rows
 
-        rendered_rows = [tuple(c.text for c in row.cells) for row in table.rows[1:]]
+        rendered_rows = [tuple(c.text for c in row.cells) for row in table.rows[1 : 1 + len(group.items)]]
         expected_rows = [
             (
                 str(ai.item.ser),
@@ -44,17 +63,35 @@ def test_contract_draft_item_schedule_matches_proposal_exactly():
                 ai.item.item_master.description,
                 ai.item.item_master.default_unit,
                 str(ai.item.qty),
-                f"{ai.awarded_rate:.2f}",
-                f"{ai.total_value:.2f}",
+                f"{ai.awarded_rate:,.2f}",
+                f"{ai.total_value:,.2f}",
             )
             for ai in group.items
         ]
         assert rendered_rows == expected_rows
 
-        full_text = "\n".join(p.text for p in doc.paragraphs)
-        assert f"{group.store_value:.2f}" in full_text
-        assert f"{group.contract_value:.2f}" in full_text
+        full_text = _full_text(doc)
+        assert f"{group.store_value:,.2f}" in full_text
+        assert f"{group.contract_value:,.2f}" in full_text
+        assert "TEST-001" in full_text
         assert "{{" not in full_text and "{%" not in full_text
+
+
+def test_contract_award_amount_in_words_and_computed_fees():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1")
+        full_text = _full_text(Document(BytesIO(content)))
+
+        # Matches the real sample CA.doc's amount-in-words for this exact firm/value.
+        assert "Pak Rupees Two Hundred Forty Nine Thousand One Hundred Thirty Eight and Paisa Twelve Only" in full_text
+        # Security deposit = 5% of store value; stamp duty = 0.25% of contract value.
+        assert f"{group.store_value * 0.05:,.2f}" in full_text
+        assert f"{group.contract_value * 0.0025:,.2f}" in full_text
 
 
 def test_ampersand_in_firm_name_survives_rendering():
@@ -70,10 +107,64 @@ def test_ampersand_in_firm_name_survives_rendering():
         supplier.name = "M/s Test & Sons"
         group.supplier_name = "M/s Test & Sons"
 
-        content = generate_contract_draft(proposal.tender, group, supplier)
-        doc = Document(BytesIO(content))
-        full_text = "\n".join(p.text for p in doc.paragraphs)
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2")
+        full_text = _full_text(Document(BytesIO(content)))
 
         assert "M/s Test & Sons" in full_text
-        assert "Terms & Conditions" in full_text  # static heading, unrelated to the value above
+        assert "SCHEDULE OF STORES TO BE SUPPLIED" in full_text  # static heading, unrelated to the value above
         assert "{{" not in full_text and "{%" not in full_text
+
+
+# --- Purchase Proposal (PP) --------------------------------------------------
+
+
+def test_purchase_proposal_doc_lists_every_firm_group():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        cs = build_comparative_statement(session, tender.id)
+        for group in proposal.firm_groups:
+            supplier = session.get(Supplier, group.supplier_id)
+            supplier.address = f"Address for {supplier.name}"
+            session.add(supplier)
+        session.commit()
+        proposal = build_purchase_proposal(session, tender.id)
+
+        content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+        doc = Document(BytesIO(content))
+        full_text = _full_text(doc)
+
+        assert "{{" not in full_text and "{%" not in full_text
+        for group in proposal.firm_groups:
+            assert group.supplier_name in full_text
+            assert f"{group.store_value:,.2f}" in full_text
+            assert f"{group.contract_value:,.2f}" in full_text
+
+        # 3 suppliers quoted on the fixture (2 won, 1 - Libra - won nothing).
+        assert "3" in full_text  # participating firms count appears somewhere
+
+
+def test_purchase_proposal_est_cost_uses_lpr_when_present():
+    """Matches the real sample PP.doc's own convention: Est Cost is
+    excl-tax (sum of lpr*qty) while Offered/Contract Value is incl-tax, so
+    even a "no change" scenario (lpr == awarded rate for every item) shows
+    an inc% equal to the tax rate, not 0% - verified against the sample's
+    own numbers (496,531.02 / 420,789 store value = 1.18 = the 18% GST
+    rate, the same relationship behind its stated "40.41% inc" figure)."""
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        cs = build_comparative_statement(session, tender.id)
+
+        for group in proposal.firm_groups:
+            for ai in group.items:
+                ai.item.lpr = ai.awarded_rate
+                session.add(ai.item)
+        session.commit()
+        proposal = build_purchase_proposal(session, tender.id)
+
+        content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+        full_text = _full_text(Document(BytesIO(content)))
+
+        assert f"{proposal.grand_total.contract_value:,.2f}" in full_text
+        assert f"{tender.tax_percent:.2f}% inc" in full_text

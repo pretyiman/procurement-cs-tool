@@ -6,7 +6,8 @@
 <p>
   <a class="btn" href="/tenders/{{ tender.id }}/proposal/export">Export to Excel</a>
   {% if proposal.firm_groups %}
-  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/contracts.zip">Download all contract drafts (.zip)</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document">Download Purchase Proposal (Word)</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/contracts.zip">Download all contract awards (.zip)</a>
   {% endif %}
 </p>
 
@@ -27,11 +28,50 @@
   {% endif %}
 </div>
 
+<details style="margin-bottom:1.5rem">
+  <summary class="muted" style="cursor:pointer">Document details (for Purchase Proposal / Contract Award Word documents)</summary>
+  <form method="post" action="/tenders/{{ tender.id }}/document-details" class="row-form" style="margin-top:0.75rem">
+    <div class="field">
+      <label for="indent_no">Indent No.</label>
+      <input type="text" id="indent_no" name="indent_no" value="{{ tender.indent_no or '' }}" placeholder="defaults to inquiry no.">
+    </div>
+    <div class="field">
+      <label for="subject_department">Subject / Department</label>
+      <input type="text" id="subject_department" name="subject_department" value="{{ tender.subject_department or '' }}">
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="firms_invited_count">Firms invited</label>
+      <input type="text" id="firms_invited_count" name="firms_invited_count" value="{{ tender.firms_invited_count or '' }}">
+    </div>
+    <div class="field">
+      <label for="issue_date">Issue date</label>
+      <input type="date" id="issue_date" name="issue_date" value="{{ tender.issue_date or '' }}">
+    </div>
+    <div class="field">
+      <label for="opening_date">Opening date</label>
+      <input type="date" id="opening_date" name="opening_date" value="{{ tender.opening_date or '' }}">
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="delivery_days">Delivery (days)</label>
+      <input type="text" id="delivery_days" name="delivery_days" value="{{ tender.delivery_days }}">
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="warranty_months">Warranty (months)</label>
+      <input type="text" id="warranty_months" name="warranty_months" value="{{ tender.warranty_months }}">
+    </div>
+    <button type="submit">Save details</button>
+  </form>
+</details>
+
 {% for group in proposal.firm_groups %}
-<h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)
-  <a class="btn" style="font-size:0.8rem;padding:0.3rem 0.7rem;vertical-align:middle;"
-     href="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}">Download contract draft</a>
-</h2>
+<h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)</h2>
+<form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form" style="margin-bottom:0.75rem">
+  <div class="field" style="max-width:260px">
+    <label for="contract_no_{{ group.supplier_id }}">Contract No. (for Contract Award document)</label>
+    <input type="text" id="contract_no_{{ group.supplier_id }}" name="contract_no" required>
+  </div>
+  <button type="submit">Download Contract Award (Word)</button>
+</form>
 <div class="card">
   <table>
     <thead>

@@ -454,6 +454,34 @@ passes after the path refactor.
 
 ---
 
+## Post-MVP round 1 (user-requested changes after MVP sign-off)
+
+Requested together in one message: GST/PST tax type selection, searchable
+item/supplier fields (replacing dropdown/datalist), cross-tender LPR
+auto-tracking, tender templates (save/reuse item lists), and - the
+explicitly flagged "most important" one - real Purchase Proposal (PP) and
+Contract Award (CA) Word documents matching two sample files the user
+supplied (`CA.doc`/`PP.doc`, kept local-only, gitignored - see "Data
+sensitivity" in `CLAUDE.md`), replacing Phase 9's generic
+`contract_template.docx` (deleted) with `ca_template.docx`/
+`pp_template.docx` built by *surgically editing* the real converted
+documents (collapsing multi-run text spans into single Jinja-tagged runs,
+restructuring per-firm/per-item tables into `{%tr for/endfor%}` loops)
+rather than recreating them from scratch - preserves the real legal/
+procedural wording verbatim, only genuinely dynamic values became tags.
+Added `app/number_words.py` (amount-in-words, matches the sample's exact
+phrasing) and a handful of new optional `Tender` fields (indent_no,
+subject_department, firms_invited_count, issue_date, opening_date,
+delivery_days, warranty_months) that only these two documents need.
+
+All five committed individually (see git log for the detailed verification
+notes per change); `pytest tests/` (39 tests) passes as of the last of
+these commits. Not tracked as new numbered MVP phases since the MVP itself
+was already complete - this is iteration on top of it, same rigor
+(tested, verified against a running server, committed with a clear why).
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles

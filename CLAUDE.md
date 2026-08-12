@@ -60,35 +60,50 @@ run.py                      # standalone launcher entry point (Phase 11)
 ProcurementCSTool.spec      # PyInstaller build spec (committed, reproducible)
 app/
   main.py                # FastAPI app + all routes
-  models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote
+  models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote,
+                           # TenderTemplate/TenderTemplateItem
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
   award_engine.py               # lowest + manual override logic, Purchase Proposal
   excel_io.py                     # import CS.xlsx, catalog/supplier get-or-create,
                                    # CS export, purchase proposal export
-  docx_export.py                    # contract draft generation (docxtpl)
+  docx_export.py                    # PP/CA document generation (docxtpl)
+  number_words.py                     # amount-in-words, ordinal (for PP/CA)
+  lpr_history.py                        # cross-tender Last Purchase Rate lookup
   docx_templates/
-    contract_template.docx            # editable in Word — cover/item schedule/
-                                       # T&C/security/signatures
+    ca_template.docx                      # Contract Award - built by surgically
+                                           # editing the user's real CA.doc (see
+                                           # "Data sensitivity"), not from scratch
+    pp_template.docx                        # Purchase Proposal - same approach,
+                                             # from PP.doc
   templates/
-    base.html                 # sidebar shell (Dashboard/Items/Suppliers/Tenders)
+    base.html                 # sidebar shell (Dashboard/Items/Suppliers/Tenders) +
+                               # shared search-select JS combobox
     dashboard.html              # "/" — stat cards + recent tenders
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
     tenders_list.html                # "/tenders" — list/create/import
-    tender_new.html                   # "/tenders/new"
-    tender_detail.html                 # "/tenders/{id}" — add item (from catalog),
-                                        # add supplier, quote grid, live CS, Excel export
+    tender_new.html                   # "/tenders/new" (+ start from template)
+    templates_list.html                 # "/templates" — tender template mgmt
+    tender_detail.html                 # "/tenders/{id}" — add item (search-select),
+                                        # add supplier, quote grid, live CS, Excel
+                                        # export, save-as-template
     quote_entry.html                    # "/tenders/{id}/quote-entry" — guided entry
     award_review.html                     # "/tenders/{id}/award" — click-to-award pills
-    purchase_proposal.html                  # "/tenders/{id}/proposal" — Excel/contract
-                                             # downloads
+    purchase_proposal.html                  # "/tenders/{id}/proposal" — Excel/PP-doc/
+                                             # CA-doc downloads, document-details form
 tests/
   test_excel_io.py
   test_cs_engine.py
   test_award_engine.py
+  test_quote_entry.py
+  test_docx_export.py
+  test_tender_status.py
+  test_lpr_history.py
+  test_tender_templates.py
+  test_number_words.py
   test_quote_entry.py
   test_docx_export.py
 ```

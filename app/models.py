@@ -25,6 +25,17 @@ class Tender(SQLModel, table=True):
     status: TenderStatus = TenderStatus.draft
     awarded_date: Optional[datetime.date] = None  # set when marked awarded; feeds LPR history
 
+    # Narrative/administrative details that only appear on generated PP/CA
+    # documents (Phase 12) - optional, filled in on the tender detail page
+    # before generating documents; sensible defaults if left blank.
+    indent_no: Optional[str] = None  # defaults to inquiry_no when rendering if blank
+    subject_department: Optional[str] = None
+    firms_invited_count: Optional[int] = None
+    issue_date: Optional[datetime.date] = None
+    opening_date: Optional[datetime.date] = None
+    delivery_days: int = 60
+    warranty_months: int = 3
+
     items: List["Item"] = Relationship(back_populates="tender")
 
 

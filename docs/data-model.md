@@ -14,6 +14,13 @@ changes; code and `PLAN.md` verification steps should match it.
 | tax_percent | decimal | e.g. 18.0; applies to whichever tax_type is selected |
 | status | enum | `draft` -> `proposal_generated` -> `awarded` |
 | awarded_date | date, nullable | set when status -> `awarded`; feeds LPR history (see below) |
+| indent_no | text, nullable | for PP/CA documents; defaults to inquiry_no when rendering if blank |
+| subject_department | text, nullable | for PP; e.g. "Admin of Exp Store" |
+| firms_invited_count | int, nullable | for PP para - how many firms the inquiry was sent to |
+| issue_date | date, nullable | for PP - when the tender inquiry was issued |
+| opening_date | date, nullable | for PP - tender opening date |
+| delivery_days | int, default 60 | for CA delivery clause |
+| warranty_months | int, default 3 | for CA warranty clause |
 
 ### ItemMaster (catalog — reusable across tenders)
 | field | type | notes |

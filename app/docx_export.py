@@ -1,26 +1,30 @@
-"""Contract Award Draft generation (Phase 9).
-
-One Word document per winning firm, rendered from
-app/docx_templates/contract_template.docx via docxtpl. The template is a
-real .docx with Jinja placeholders across five sections (cover, item
-schedule, terms & conditions, security of contract, signatures) - it's
-meant to be opened and edited directly in Word by non-technical staff
-(legal/security review their sections' wording there), not maintained as
-code. This module only supplies the data context; it never hardcodes
-contract wording.
+"""Purchase Proposal (PP) and Contract Award (CA) document generation
+(Phase 12), rendered via docxtpl from app/docx_templates/pp_template.docx
+and ca_template.docx. Those templates were built by surgically editing
+real Word documents the user supplied (CA.doc/PP.doc, kept local-only -
+see CLAUDE.md "Data sensitivity") so all legal/procedural wording is
+preserved verbatim; only genuinely per-contract values are Jinja tags.
+Non-technical staff can still open and edit the .docx templates directly
+in Word - this module only supplies data, never hardcodes document text.
 """
 
 import datetime
 import html
 from io import BytesIO
+from typing import Optional
 
 from docxtpl import DocxTemplate
 
-from .award_engine import ProposalFirmGroup
+from .award_engine import ProposalFirmGroup, PurchaseProposal
 from .models import Supplier, Tender
+from .number_words import amount_in_words, number_to_words, ordinal
 from .paths import resource_path
 
-TEMPLATE_PATH = resource_path("docx_templates", "contract_template.docx")
+CA_TEMPLATE_PATH = resource_path("docx_templates", "ca_template.docx")
+PP_TEMPLATE_PATH = resource_path("docx_templates", "pp_template.docx")
+
+SECURITY_DEPOSIT_RATE = 0.05  # 5% of store value, per the sample CA's standing clause
+STAMP_DUTY_RATE = 0.0025  # 0.25% of contract value, per Stamp Duty Act 1899 clause
 
 
 def _esc(value) -> str:
@@ -34,18 +38,49 @@ def _esc(value) -> str:
     return html.escape(str(value)) if value else "-"
 
 
-def _context(tender: Tender, group: ProposalFirmGroup, supplier: Supplier) -> dict:
-    return {
-        "tender_inquiry_no": _esc(tender.inquiry_no),
-        "date": datetime.date.today().strftime("%d-%b-%Y"),
+def _money(value: float) -> str:
+    return f"{value:,.2f}"
+
+
+def _date_words(d: datetime.date) -> str:
+    """12 Aug 2026 -> "12th day of August Two Thousand Twenty Six", the
+    sample CA's agreement-date phrasing."""
+    return f"{ordinal(d.day)} day of {d.strftime('%B')} {number_to_words(d.year)}"
+
+
+def generate_contract_award(
+    tender: Tender,
+    group: ProposalFirmGroup,
+    supplier: Supplier,
+    contract_no: str,
+    contract_date: Optional[datetime.date] = None,
+    agreement_date: Optional[datetime.date] = None,
+) -> bytes:
+    contract_date = contract_date or datetime.date.today()
+    agreement_date = agreement_date or datetime.date.today()
+
+    store_value = group.store_value
+    security_deposit = store_value * SECURITY_DEPOSIT_RATE
+    stamp_duty = group.contract_value * STAMP_DUTY_RATE
+
+    context = {
         "firm_name": _esc(group.supplier_name),
         "firm_address": _esc(supplier.address),
-        "firm_contact_person": _esc(supplier.contact_person),
-        "firm_phone": _esc(supplier.phone),
-        "firm_email": _esc(supplier.email),
-        "firm_tax_no": _esc(supplier.tax_no),
+        "agreement_date_words": _date_words(agreement_date),
+        "indent_no": _esc(tender.indent_no or tender.inquiry_no),
+        "indent_date": tender.issue_date.strftime("%d %b %Y") if tender.issue_date else "___",
+        "delivery_days": tender.delivery_days,
+        "warranty_months": f"{tender.warranty_months:02d}",
+        "contract_no": _esc(contract_no),
+        "contract_date": contract_date.strftime("%d %b %Y"),
         "tax_type": tender.tax_type.value,
-        "tax_percent": tender.tax_percent,
+        "tax_percent": f"{tender.tax_percent:g}",
+        "store_value": _money(store_value),
+        "tax_amount": _money(group.tax_amount),
+        "contract_value": _money(group.contract_value),
+        "amount_in_words": amount_in_words(group.contract_value),
+        "security_deposit": _money(security_deposit),
+        "stamp_duty": _money(stamp_duty),
         "items": [
             {
                 "ser": ai.item.ser,
@@ -53,20 +88,74 @@ def _context(tender: Tender, group: ProposalFirmGroup, supplier: Supplier) -> di
                 "description": _esc(ai.item.item_master.description),
                 "unit": _esc(ai.item.item_master.default_unit),
                 "qty": ai.item.qty,
-                "rate": f"{ai.awarded_rate:.2f}",
-                "total_value": f"{ai.total_value:.2f}",
+                "rate": _money(ai.awarded_rate),
+                "total_value": _money(ai.total_value),
             }
             for ai in group.items
         ],
-        "store_value": f"{group.store_value:.2f}",
-        "tax_amount": f"{group.tax_amount:.2f}",
-        "contract_value": f"{group.contract_value:.2f}",
     }
 
+    doc = DocxTemplate(str(CA_TEMPLATE_PATH))
+    doc.render(context)
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
 
-def generate_contract_draft(tender: Tender, group: ProposalFirmGroup, supplier: Supplier) -> bytes:
-    doc = DocxTemplate(str(TEMPLATE_PATH))
-    doc.render(_context(tender, group, supplier))
+
+def generate_purchase_proposal_doc(
+    tender: Tender,
+    proposal: PurchaseProposal,
+    suppliers_by_id: dict,
+) -> bytes:
+    est_cost = sum(
+        ai.item.qty * ai.item.lpr
+        for group in proposal.firm_groups
+        for ai in group.items
+        if ai.item.lpr is not None
+    )
+    offered = proposal.grand_total.contract_value
+    inc_dec_pct = ((offered - est_cost) / est_cost * 100) if est_cost else None
+
+    context = {
+        "tender_inquiry_no": _esc(tender.inquiry_no),
+        "date": datetime.date.today().strftime("%d %b %Y"),
+        "indent_no": _esc(tender.indent_no or tender.inquiry_no),
+        "issue_date": tender.issue_date.strftime("%d %b %Y") if tender.issue_date else "___",
+        "opening_date": tender.opening_date.strftime("%d %b %Y") if tender.opening_date else "___",
+        "firms_invited_count": tender.firms_invited_count or "___",
+        "subject_department": _esc(tender.subject_department) if tender.subject_department else "___",
+        "total_item_count": sum(len(g.items) for g in proposal.firm_groups) + len(proposal.unresolved_items),
+        # suppliers_by_id is expected to be cs.suppliers_by_id (every supplier
+        # with >=1 quote on this tender, win or not) - i.e. participating firms.
+        "participating_firms_count": len(suppliers_by_id),
+        "tax_type": tender.tax_type.value,
+        "tax_percent": f"{tender.tax_percent:g}",
+        "delivery_days": tender.delivery_days,
+        "current_month": datetime.date.today().strftime("%b"),
+        "current_year": datetime.date.today().year,
+        "firm_groups": [
+            {
+                "supplier_name": _esc(group.supplier_name),
+                "firm_address": _esc(suppliers_by_id[group.supplier_id].address),
+                "item_count": len(group.items),
+                "store_value": _money(group.store_value),
+                "tax_amount": _money(group.tax_amount),
+                "contract_value": _money(group.contract_value),
+            }
+            for group in proposal.firm_groups
+        ],
+        "est_cost": _money(est_cost),
+        "offered_rates": _money(offered),
+        "overall_inc_dec": f"{inc_dec_pct:.2f}% {'inc' if (inc_dec_pct or 0) >= 0 else 'dec'}"
+        if inc_dec_pct is not None
+        else "N/A - no LPR history yet",
+        "grand_store_value": _money(proposal.grand_total.store_value),
+        "grand_tax_amount": _money(proposal.grand_total.tax_amount),
+        "grand_contract_value": _money(proposal.grand_total.contract_value),
+    }
+
+    doc = DocxTemplate(str(PP_TEMPLATE_PATH))
+    doc.render(context)
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()

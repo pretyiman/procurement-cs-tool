@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
-from .docx_export import generate_contract_draft
+from .docx_export import generate_contract_award, generate_purchase_proposal_doc
 from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .excel_io import (
@@ -856,8 +856,13 @@ def _safe_filename_part(name: str) -> str:
     return "".join(c if c.isalnum() or c in " -_" else "_" for c in name).strip()
 
 
-@app.get("/tenders/{tender_id}/proposal/contract/{supplier_id}")
-def download_contract_draft(tender_id: int, supplier_id: int, session: Session = Depends(get_session)):
+@app.post("/tenders/{tender_id}/proposal/contract/{supplier_id}")
+def download_contract_draft(
+    tender_id: int,
+    supplier_id: int,
+    contract_no: str = Form(...),
+    session: Session = Depends(get_session),
+):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
@@ -870,8 +875,8 @@ def download_contract_draft(tender_id: int, supplier_id: int, session: Session =
     if group is None:
         raise HTTPException(400, "This supplier has no items awarded on this tender")
 
-    content = generate_contract_draft(proposal.tender, group, supplier)
-    filename = f"contract-draft-{_safe_filename_part(group.supplier_name)}.docx"
+    content = generate_contract_award(proposal.tender, group, supplier, contract_no=contract_no)
+    filename = f"contract-award-{_safe_filename_part(group.supplier_name)}.docx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -893,12 +898,70 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for group in proposal.firm_groups:
             supplier = session.get(Supplier, group.supplier_id)
-            content = generate_contract_draft(proposal.tender, group, supplier)
-            zf.writestr(f"contract-draft-{_safe_filename_part(group.supplier_name)}.docx", content)
+            # No per-firm contract no. collected in a bulk download - a
+            # reasonable auto-generated placeholder, editable in Word after.
+            auto_contract_no = f"{tender.inquiry_no} / {group.supplier_name}"
+            content = generate_contract_award(proposal.tender, group, supplier, contract_no=auto_contract_no)
+            zf.writestr(f"contract-award-{_safe_filename_part(group.supplier_name)}.docx", content)
 
     filename = f"contract-drafts-tender-{tender_id}.zip"
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/tenders/{tender_id}/document-details")
+def update_document_details(
+    tender_id: int,
+    indent_no: str = Form(""),
+    subject_department: str = Form(""),
+    firms_invited_count: str = Form(""),
+    issue_date: str = Form(""),
+    opening_date: str = Form(""),
+    delivery_days: str = Form("60"),
+    warranty_months: str = Form("3"),
+    session: Session = Depends(get_session),
+):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    def _parse_date(s: str):
+        return datetime.date.fromisoformat(s) if s.strip() else None
+
+    try:
+        tender.indent_no = indent_no.strip() or None
+        tender.subject_department = subject_department.strip() or None
+        tender.firms_invited_count = int(firms_invited_count) if firms_invited_count.strip() else None
+        tender.issue_date = _parse_date(issue_date)
+        tender.opening_date = _parse_date(opening_date)
+        tender.delivery_days = int(delivery_days)
+        tender.warranty_months = int(warranty_months)
+    except ValueError:
+        raise HTTPException(400, "Invalid document details")
+
+    session.add(tender)
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
+
+
+@app.get("/tenders/{tender_id}/proposal/pp-document")
+def download_pp_document(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    proposal = build_purchase_proposal(session, tender_id)
+    cs = build_comparative_statement(session, tender_id)
+    if not proposal.firm_groups:
+        raise HTTPException(400, "No items have been awarded to any firm yet")
+
+    content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+    filename = f"purchase-proposal-tender-{tender_id}.docx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
