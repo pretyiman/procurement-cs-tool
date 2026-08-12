@@ -47,24 +47,8 @@
   </form>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">Add supplier to this tender</h2>
-  <form method="post" action="/tenders/{{ tender.id }}/suppliers" class="row-form">
-    <div class="field">
-      <label for="supplier-search-input">Supplier name (existing or new)</label>
-      <div class="search-select" id="supplier-search">
-        <input type="text" id="supplier-search-input" class="search-select-input" name="name"
-               autocomplete="off" required placeholder="Type to search or add a new supplier...">
-        <div class="search-select-menu"></div>
-      </div>
-    </div>
-    <button type="submit">Add supplier</button>
-  </form>
-</div>
-
 <script>
   initSearchSelect('item-search', {{ catalog_items_json | safe }});
-  initSearchSelect('supplier-search', {{ supplier_names_json | safe }});
   document.getElementById('add-item-form').addEventListener('submit', function (e) {
     var hidden = document.querySelector('#item-search .search-select-hidden');
     if (!hidden.value) {
@@ -75,6 +59,7 @@
 </script>
 
 <h2 id="quotes">Items &amp; quotes</h2>
+<p class="muted">Suppliers aren't added separately - once a firm submits a quote, enter it via <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a> and they'll appear here automatically.</p>
 {% if item_rows %}
 <form method="post" action="/tenders/{{ tender.id }}/quotes">
 <div class="card" style="overflow-x:auto">

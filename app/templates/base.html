@@ -138,24 +138,6 @@
       aside.sidebar { width: 100%; height: auto; position: static; }
     }
   </style>
-</head>
-<body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="/">Procurement CS Tool</a>
-      <nav>
-        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
-        <a href="/items" class="{{ 'active' if request.url.path.startswith('/items') else '' }}">Items</a>
-        <a href="/suppliers" class="{{ 'active' if request.url.path.startswith('/suppliers') else '' }}">Suppliers</a>
-        <a href="/tenders" class="{{ 'active' if request.url.path.startswith('/tenders') else '' }}">Tenders</a>
-      </nav>
-    </aside>
-    <div class="main-area">
-      <main>
-        {% block content %}{% endblock %}
-      </main>
-    </div>
-  </div>
   <script>
     // Reusable type-ahead combobox. `items` is [{id, label, ...extra}].
     // Catalog mode (opts.strict=true, default): a hidden input (class
@@ -165,6 +147,15 @@
     // visible input carries its own `name` and submits whatever was
     // typed, matched or not (used for suppliers - typing a new name is
     // valid, it creates a new supplier).
+    //
+    // Defined here in <head>, not at the end of <body> where it used to
+    // live: pages call initSearchSelect(...) from an inline script inside
+    // the page's own content area, which renders before this file's
+    // trailing content - a definition placed after that ran too late
+    // (ReferenceError: initSearchSelect is not defined), which is exactly
+    // why the search boxes silently did nothing. Script tags run in
+    // document order; defining the function in <head> guarantees it
+    // exists before any page content's inline call to it does.
     function initSearchSelect(rootId, items, opts) {
       opts = opts || {};
       var root = document.getElementById(rootId);
@@ -245,5 +236,23 @@
       });
     }
   </script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">Procurement CS Tool</a>
+      <nav>
+        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+        <a href="/items" class="{{ 'active' if request.url.path.startswith('/items') else '' }}">Items</a>
+        <a href="/suppliers" class="{{ 'active' if request.url.path.startswith('/suppliers') else '' }}">Suppliers</a>
+        <a href="/tenders" class="{{ 'active' if request.url.path.startswith('/tenders') else '' }}">Tenders</a>
+      </nav>
+    </aside>
+    <div class="main-area">
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
 </body>
 </html>

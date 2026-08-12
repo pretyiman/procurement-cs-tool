@@ -390,9 +390,6 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
 
     cs = build_comparative_statement(session, tender_id)
     attached_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
-    all_supplier_names = [
-        s.name for s in session.exec(select(Supplier).order_by(Supplier.name)).all()
-    ]
 
     item_rows = []
     for r in cs.item_results:
@@ -413,7 +410,6 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
     catalog_items_json = _json_for_script(
         [{"id": im.id, "label": f"{im.part_no} - {im.description} ({im.default_unit})"} for im in catalog_items]
     )
-    supplier_names_json = _json_for_script([{"id": n, "label": n} for n in all_supplier_names])
 
     return templates.TemplateResponse(
         request,
@@ -421,13 +417,11 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
         {
             "tender": tender,
             "suppliers": attached_suppliers,
-            "all_supplier_names": all_supplier_names,
             "rate_matrix": rate_matrix,
             "item_rows": item_rows,
             "firm_summaries": cs.firm_summaries,
             "grand_total": cs.grand_total,
             "catalog_items_json": catalog_items_json,
-            "supplier_names_json": supplier_names_json,
         },
     )
 
@@ -497,34 +491,6 @@ def add_item(
 
     for supplier_id in attached_supplier_ids:
         session.add(Quote(item_id=item.id, supplier_id=supplier_id, rate=None))
-
-    session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}", status_code=303)
-
-
-@app.post("/tenders/{tender_id}/suppliers")
-def attach_supplier(
-    tender_id: int,
-    name: str = Form(...),
-    session: Session = Depends(get_session),
-):
-    tender = session.get(Tender, tender_id)
-    if tender is None:
-        raise HTTPException(404, "Tender not found")
-    name = name.strip()
-    if not name:
-        raise HTTPException(400, "Supplier name is required")
-
-    supplier = get_or_create_supplier(session, name)
-
-    items = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
-    already_quoted_item_ids = {
-        q.item_id
-        for q in session.exec(select(Quote).where(Quote.supplier_id == supplier.id)).all()
-    }
-    for item in items:
-        if item.id not in already_quoted_item_ids:
-            session.add(Quote(item_id=item.id, supplier_id=supplier.id, rate=None))
 
     session.commit()
     return RedirectResponse(f"/tenders/{tender_id}", status_code=303)
