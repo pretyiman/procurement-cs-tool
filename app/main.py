@@ -1,5 +1,7 @@
 import shutil
 import tempfile
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +13,7 @@ from sqlmodel import Session, select
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
+from .docx_export import generate_contract_draft
 from .excel_io import (
     export_purchase_proposal_xlsx,
     get_or_create_item_master,
@@ -645,5 +648,57 @@ def export_proposal(tender_id: int, session: Session = Depends(get_session)):
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _safe_filename_part(name: str) -> str:
+    return "".join(c if c.isalnum() or c in " -_" else "_" for c in name).strip()
+
+
+@app.get("/tenders/{tender_id}/proposal/contract/{supplier_id}")
+def download_contract_draft(tender_id: int, supplier_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    supplier = session.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
+
+    proposal = build_purchase_proposal(session, tender_id)
+    group = next((g for g in proposal.firm_groups if g.supplier_id == supplier_id), None)
+    if group is None:
+        raise HTTPException(400, "This supplier has no items awarded on this tender")
+
+    content = generate_contract_draft(proposal.tender, group, supplier)
+    filename = f"contract-draft-{_safe_filename_part(group.supplier_name)}.docx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/tenders/{tender_id}/proposal/contracts.zip")
+def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    proposal = build_purchase_proposal(session, tender_id)
+    if not proposal.firm_groups:
+        raise HTTPException(400, "No items have been awarded to any firm yet")
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for group in proposal.firm_groups:
+            supplier = session.get(Supplier, group.supplier_id)
+            content = generate_contract_draft(proposal.tender, group, supplier)
+            zf.writestr(f"contract-draft-{_safe_filename_part(group.supplier_name)}.docx", content)
+
+    filename = f"contract-drafts-tender-{tender_id}.zip"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

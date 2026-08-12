@@ -312,7 +312,7 @@ correctly clears the override when clicked.
 ---
 
 ## Phase 9 — Contract Award Draft generator
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** One Word (.docx) draft per winning firm, generated from an
 editable template (`docxtpl`), built from **separate reviewable sections**
@@ -340,6 +340,42 @@ so different approvers can review their part independently:
 - Editing the template's T&C/security-of-contract text in Word and
   re-running generation reflects the edit without any code change —
   confirms non-technical staff can maintain that content.
+
+**Confirmed:** `pytest tests/` (19 tests, 2 new) passes, including a
+regression test that the rendered item-schedule table exactly matches the
+firm group's awarded items (ser/part_no/description/unit/qty/rate/total,
+row-for-row) with no leftover `{%tr%}` marker rows, and no unrendered
+`{{`/`{%` tags anywhere in the output.
+
+Hit and fixed a real docxtpl bug along the way: its XML patching does an
+"unescape html entities" pass on the rendered output, which means
+un-escaped `&` in a context value (e.g. a firm name like "M/s Zafar &
+Sons" - a completely realistic firm name) produced malformed intermediate
+XML that silently corrupted *nearby* static template text too (headings
+like "Terms & Conditions" lost their ampersand even though that text was
+never touched by any Jinja variable). Fixed by HTML-escaping every
+free-text context value before it reaches docxtpl
+(`docx_export._esc()`), with a regression test
+(`test_ampersand_in_firm_name_survives_rendering`) covering exactly this.
+
+Also had to reverse-engineer the correct `{%tr %}` row-loop syntax:
+docxtpl's own docs don't show a worked example, and the intuitive
+approach (put `{%tr for %}` in the first cell and `{%tr endfor %}` in the
+last cell of the *same* row) fails outright ("Encountered unknown tag
+'endfor'") because docxtpl disallows two `{%tr` tags in one row. The
+working pattern is three separate rows: one containing only
+`{%tr for item in items %}`, the literal data row in between (repeated
+per item), and one containing only `{%tr endfor %}` - the two marker rows
+get deleted entirely. The committed artifact is the resulting
+`contract_template.docx` itself (meant to be hand-edited in Word from
+here on); the one-off script that built it wasn't committed.
+
+Manually verified end-to-end against the seeded dummy tender (4 real
+winning firms, one with "&" in its name): downloaded each firm's
+`.docx` individually and as a combined `.zip` via the actual HTTP
+endpoints, re-opened every file with python-docx, and confirmed table row
+counts and values matched the Purchase Proposal exactly for all four
+firms (5, 3, 5, and 1 awarded items respectively).
 
 ---
 

@@ -6,3 +6,4 @@ python-multipart
 jinja2
 pytest
 httpx
+docxtpl
