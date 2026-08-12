@@ -20,7 +20,7 @@
       {% for row in rows %}
       <tr>
         <td>{{ row.item.ser }}</td>
-        <td>{{ row.item.description }}</td>
+        <td>{{ row.item.item_master.description }}</td>
         <td>
           {% if row.lowest_name %}{{ row.lowest_name }} @ {{ '%.2f'|format(row.lowest_rate) }}
           {% else %}<span class="nq">no quotes</span>{% endif %}

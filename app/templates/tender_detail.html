@@ -9,23 +9,17 @@
 </p>
 
 <div class="card">
-  <h2 style="margin-top:0">Add item</h2>
+  <h2 style="margin-top:0">Add item to this tender</h2>
+  <p class="muted">Items come from the <a href="/items">item catalog</a> - add a new catalog item there first if it doesn't exist yet.</p>
   <form method="post" action="/tenders/{{ tender.id }}/items" class="row-form">
-    <div class="field" style="max-width:80px">
-      <label for="ser">Ser</label>
-      <input type="text" id="ser" name="ser" value="{{ next_ser }}" required>
-    </div>
-    <div class="field" style="max-width:140px">
-      <label for="part_no">Part No</label>
-      <input type="text" id="part_no" name="part_no">
-    </div>
     <div class="field" style="flex:2">
-      <label for="description">Description</label>
-      <input type="text" id="description" name="description" required>
-    </div>
-    <div class="field" style="max-width:90px">
-      <label for="unit">Unit</label>
-      <input type="text" id="unit" name="unit">
+      <label for="item_master_id">Catalog item</label>
+      <select id="item_master_id" name="item_master_id" required>
+        <option value="">-- select --</option>
+        {% for im in catalog_items %}
+        <option value="{{ im.id }}">{{ im.part_no }} - {{ im.description }} ({{ im.default_unit }})</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="field" style="max-width:90px">
       <label for="qty">Qty</label>
@@ -71,9 +65,9 @@
       {% set item = row.item %}
       <tr>
         <td>{{ item.ser }}</td>
-        <td>{{ item.part_no }}</td>
-        <td>{{ item.description }}</td>
-        <td>{{ item.unit }}</td>
+        <td>{{ item.item_master.part_no }}</td>
+        <td>{{ item.item_master.description }}</td>
+        <td>{{ item.item_master.default_unit }}</td>
         <td class="num">{{ item.qty }}</td>
         {% for s in suppliers %}
           {% set rate = rate_matrix.get((item.id, s.id)) %}

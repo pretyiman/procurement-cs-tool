@@ -19,7 +19,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from sqlmodel import Session, select
 
-from .models import Item, Quote, Supplier, Tender, TenderStatus
+from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
@@ -63,6 +63,32 @@ def get_or_create_supplier(session: Session, name: str) -> Supplier:
     session.add(supplier)
     session.flush()
     return supplier
+
+
+def get_or_create_item_master(
+    session: Session, part_no: str, description: str, default_unit: str = ""
+) -> ItemMaster:
+    """Reuse a catalog row when (part_no, description) already matches one
+    (see docs/data-model.md - part_no alone isn't unique for "NIV" items)."""
+    part_no = (part_no or "").strip()
+    description = (description or "").strip()
+    default_unit = (default_unit or "").strip()
+
+    existing = session.exec(
+        select(ItemMaster).where(
+            ItemMaster.part_no == part_no, ItemMaster.description == description
+        )
+    ).first()
+    if existing:
+        if not existing.default_unit and default_unit:
+            existing.default_unit = default_unit
+            session.add(existing)
+        return existing
+
+    item_master = ItemMaster(part_no=part_no, description=description, default_unit=default_unit)
+    session.add(item_master)
+    session.flush()
+    return item_master
 
 
 def import_tender(path: Union[str, Path], session: Session) -> Tender:
@@ -123,12 +149,16 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
             continue  # not at the data rows yet
 
         started = True
-        item = Item(
-            tender_id=tender.id,
-            ser=int(row[0]),
+        item_master = get_or_create_item_master(
+            session,
             part_no=str(row[1]) if row[1] is not None else "",
             description=str(row[2]) if row[2] is not None else "",
-            unit=str(row[3]) if row[3] is not None else "",
+            default_unit=str(row[3]) if row[3] is not None else "",
+        )
+        item = Item(
+            tender_id=tender.id,
+            item_master_id=item_master.id,
+            ser=int(row[0]),
             qty=float(row[4]) if row[4] is not None else 0.0,
         )
         session.add(item)
@@ -172,9 +202,9 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
         for ai in group.items:
             item = ai.item
             ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.part_no)
-            ws.cell(row=row, column=3, value=item.description)
-            ws.cell(row=row, column=4, value=item.unit)
+            ws.cell(row=row, column=2, value=item.item_master.part_no)
+            ws.cell(row=row, column=3, value=item.item_master.description)
+            ws.cell(row=row, column=4, value=item.item_master.default_unit)
             ws.cell(row=row, column=5, value=item.qty)
             ws.cell(row=row, column=6, value=ai.awarded_rate)
             ws.cell(row=row, column=7, value=ai.total_value)
@@ -198,9 +228,9 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
         row += 1
         for item in proposal.unresolved_items:
             ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.part_no)
-            ws.cell(row=row, column=3, value=item.description)
-            ws.cell(row=row, column=4, value=item.unit)
+            ws.cell(row=row, column=2, value=item.item_master.part_no)
+            ws.cell(row=row, column=3, value=item.item_master.description)
+            ws.cell(row=row, column=4, value=item.item_master.default_unit)
             ws.cell(row=row, column=5, value=item.qty)
             row += 1
         row += 2

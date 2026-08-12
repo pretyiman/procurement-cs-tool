@@ -4,7 +4,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.excel_io import import_tender
-from app.models import Item, Quote, Supplier
+from app.models import Item, ItemMaster, Quote, Supplier
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
 
@@ -72,3 +72,25 @@ def test_specific_rates_match_source_file():
         assert rates_by_supplier_id[supplier_by_name["M/s Awan Tech"].id] == 850
         assert rates_by_supplier_id[supplier_by_name["M/s SNS Enterprises"].id] == 350
         assert rates_by_supplier_id[supplier_by_name["M/s Libra Enterprises"].id] == 900
+
+
+def test_reimporting_reuses_catalog_items_instead_of_duplicating():
+    with _fresh_session() as session:
+        tender_a = import_tender(CS_XLSX_PATH, session)
+        tender_b = import_tender(CS_XLSX_PATH, session)
+
+        catalog = session.exec(select(ItemMaster)).all()
+        assert len(catalog) == 23  # not 46 - the second import reused every row
+
+        items_a = session.exec(select(Item).where(Item.tender_id == tender_a.id)).all()
+        items_b = session.exec(select(Item).where(Item.tender_id == tender_b.id)).all()
+        item_masters_a = {i.item_master_id for i in items_a}
+        item_masters_b = {i.item_master_id for i in items_b}
+        assert item_masters_a == item_masters_b  # both tenders point at the same catalog rows
+
+        # NIV part_no is reused by several genuinely different items - confirm
+        # they stayed distinct catalog rows rather than collapsing into one.
+        niv_descriptions = {
+            im.description for im in catalog if im.part_no == "NIV"
+        }
+        assert len(niv_descriptions) >= 2

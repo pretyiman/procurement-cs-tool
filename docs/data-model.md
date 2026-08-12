@@ -14,15 +14,26 @@ changes; code and `PLAN.md` verification steps should match it.
 | gst_percent | decimal | e.g. 18.0 |
 | status | enum | `draft` -> `proposal_generated` -> `awarded` |
 
-### Item
+### ItemMaster (catalog — reusable across tenders)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| part_no | text | e.g. "A-2394"; can be "NIV" (non-inventory) - not globally unique by itself |
+| description | text | |
+| default_unit | text | "A/U", e.g. Kg, Nos, Lit |
+
+Unique on `(part_no, description)` together. Non-inventory items in the
+source data reuse part_no "NIV" for genuinely different items, so part_no
+alone can't be the dedup key - see `get_or_create_item_master` in
+`app/excel_io.py`.
+
+### Item (a tender line — qty of one catalog item needed for one tender)
 | field | type | notes |
 |---|---|---|
 | id | int, PK | |
 | tender_id | FK | |
+| item_master_id | FK -> ItemMaster | part_no/description/unit come from here |
 | ser | int | display order / serial no. |
-| part_no | text | e.g. "A-2394"; can be "NIV" (non-inventory) |
-| description | text | |
-| unit | text | "A/U" column, e.g. Kg, Nos, Lit |
 | qty | decimal | |
 | lpr | decimal, nullable | Last Purchase Rate, for Inc/Dec% |
 | awarded_supplier_id | FK, nullable | overrides computed-lowest when set |

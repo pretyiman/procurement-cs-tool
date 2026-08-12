@@ -147,7 +147,7 @@ shown inline.
 ---
 
 ## Phase 5 — Reusable item catalog + supplier catalog UI
-**Status: Not Started**
+**Status: Done**
 
 **Why now:** user feedback after Phase 4 was that the UI doesn't look
 professional and, critically, that **items should be reusable** across
@@ -194,10 +194,24 @@ routes in `app/main.py`, `docs/data-model.md` updated to match.
 - `/items` search filters correctly; `/suppliers/{id}` shows the right
   supplier's detail and survives an edit.
 
+**Confirmed:** `pytest tests/` (14 tests, 1 new) passes, including a new
+regression test that re-importing `CS.xlsx` twice into the same DB
+produces 23 catalog rows (not 46) and both tenders' lines point at the
+same `ItemMaster` rows - including confirming NIV-part-numbered items
+stayed distinct by description rather than colliding. Manually verified
+on a running server: imported the fixture (23 catalog items appeared),
+added a new tender by hand and added an existing catalog item to it via
+the new dropdown (unit/part_no/description flowed through correctly),
+confirmed adding the same catalog item twice to one tender is rejected
+(400), created and edited a supplier via `/suppliers` and
+`/suppliers/{id}` and confirmed the edit persisted, and confirmed the
+Purchase Proposal Excel export still works against the new schema
+(`item.item_master.*`).
+
 ---
 
 ## Phase 6 — Dashboard home page
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Replace the current home page (tender list + create/import
 forms bolted onto it) with an actual dashboard: stat cards (tenders by
@@ -209,6 +223,12 @@ Tender create/import moves to a dedicated `/tenders` page (list + create
 populated DB (spot-check against known fixture-derived numbers); creating
 a tender via `/tenders` still works exactly as before (same underlying
 routes, just relocated).
+
+**Confirmed:** Built alongside Phase 5 since the sidebar's "Tenders" nav
+link needed somewhere real to point at. Manually verified: dashboard at
+`/` shows correct live counts (2 tenders both "draft", 23 catalog items,
+4 suppliers) matching the DB state at the time; `/tenders` (moved from
+the old `/`) still lists/creates/imports tenders exactly as before.
 
 ---
 

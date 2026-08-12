@@ -6,33 +6,56 @@
   <title>{% block title %}Procurement CS Tool{% endblock %}</title>
   <style>
     :root {
-      --border: #d8dce1;
+      --border: #dde1e6;
       --muted: #667085;
       --accent: #1f5fbf;
       --lowest-bg: #e6f4ea;
       --lowest-border: #34a853;
+      --sidebar-bg: #14213d;
+      --sidebar-fg: #c9d3e6;
+      --sidebar-active-bg: #1f2f52;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       margin: 0;
       color: #1c2126;
       background: #f7f8fa;
     }
-    header.site {
-      background: #14213d;
+    .app-shell { display: flex; min-height: 100vh; }
+    aside.sidebar {
+      width: 230px;
+      flex-shrink: 0;
+      background: var(--sidebar-bg);
+      color: var(--sidebar-fg);
+      padding: 1.25rem 0.75rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    aside.sidebar .brand {
+      font-weight: 700;
       color: white;
-      padding: 0.9rem 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      font-size: 1.05rem;
+      padding: 0 0.6rem 1.25rem;
+      display: block;
+      text-decoration: none;
     }
-    header.site a { color: white; text-decoration: none; font-weight: 600; }
-    main {
-      max-width: 1100px;
-      margin: 1.5rem auto;
-      padding: 0 1.5rem 3rem;
+    aside.sidebar nav a {
+      display: block;
+      color: var(--sidebar-fg);
+      text-decoration: none;
+      padding: 0.55rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.92rem;
+      margin-bottom: 0.15rem;
     }
+    aside.sidebar nav a:hover { background: #1a2a4d; color: white; }
+    aside.sidebar nav a.active { background: var(--sidebar-active-bg); color: white; font-weight: 600; }
+    .main-area { flex: 1; min-width: 0; }
+    main { max-width: 1200px; margin: 0 auto; padding: 1.75rem 2rem 3rem; }
     h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
     h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
     .card {
@@ -50,9 +73,9 @@
     .muted { color: var(--muted); }
     .nq { color: var(--muted); font-style: italic; }
     td.lowest-cell { background: var(--lowest-bg); border-left: 3px solid var(--lowest-border); font-weight: 600; }
-    input[type=text], input[type=number] {
+    input[type=text], input[type=number], select {
       width: 100%;
-      padding: 0.3rem 0.4rem;
+      padding: 0.35rem 0.5rem;
       border: 1px solid var(--border);
       border-radius: 4px;
       font-size: 0.9rem;
@@ -77,16 +100,49 @@
     .btn-secondary { background: #5f6b7a; }
     .totals-row { font-weight: 700; background: #eef1f5; }
     .empty { color: var(--muted); font-style: italic; padding: 1rem 0; }
-    .tender-list a { font-weight: 600; }
+    .breadcrumb { font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .breadcrumb a { color: var(--accent); text-decoration: none; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; }
+    .stat-card .value { font-size: 1.7rem; font-weight: 700; }
+    .stat-card .label { color: var(--muted); font-size: 0.85rem; }
+    .price-pill {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.35rem 0.8rem;
+      margin: 0.15rem 0.3rem 0.15rem 0;
+      background: #f4f6f8;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: #1c2126;
+    }
+    .price-pill:hover { border-color: var(--accent); }
+    .price-pill.lowest { border-color: var(--lowest-border); background: var(--lowest-bg); font-weight: 600; }
+    .price-pill.awarded { outline: 2px solid var(--accent); }
+    .badge { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--lowest-border); color: white; margin-left: 0.35rem; }
+    @media (max-width: 780px) {
+      .app-shell { flex-direction: column; }
+      aside.sidebar { width: 100%; height: auto; position: static; }
+    }
   </style>
 </head>
 <body>
-  <header class="site">
-    <a href="/">Procurement CS Tool</a>
-    <nav><a href="/tenders/new" style="opacity:0.85">+ New Tender</a></nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">Procurement CS Tool</a>
+      <nav>
+        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+        <a href="/items" class="{{ 'active' if request.url.path.startswith('/items') else '' }}">Items</a>
+        <a href="/suppliers" class="{{ 'active' if request.url.path.startswith('/suppliers') else '' }}">Suppliers</a>
+        <a href="/tenders" class="{{ 'active' if request.url.path.startswith('/tenders') else '' }}">Tenders</a>
+      </nav>
+    </aside>
+    <div class="main-area">
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
 </body>
 </html>

@@ -45,7 +45,7 @@ writing code.**
 - **Packaging**: PyInstaller (or similar) for a standalone local launcher,
   once the app works.
 
-## Repo layout (target — created as phases are built, not all at once)
+## Repo layout (current, as of Phase 6)
 
 ```
 CLAUDE.md
@@ -54,18 +54,39 @@ docs/
   data-model.md
 CS.xlsx                 # existing dummy dataset — treated as a fixture/
                          # regression-test target, do not overwrite
+requirements.txt
 app/
-  main.py               # FastAPI app
-  models.py             # DB models
-  cs_engine.py           # comparative-statement calculation
-  award_engine.py         # lowest + manual override logic
-  excel_io.py            # import quotes, export CS.xlsx
-  docx_export.py          # purchase proposal + contract drafts
-  templates/             # Jinja2/HTMX pages
-  docx_templates/          # editable .docx templates (T&C, security clause, etc.)
+  main.py                # FastAPI app + all routes
+  models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote
+  db.py                    # SQLite engine/session
+  cs_engine.py              # comparative-statement calculation (pure)
+  award_engine.py            # lowest + manual override logic, Purchase Proposal
+  excel_io.py                 # import CS.xlsx, catalog/supplier get-or-create, proposal export
+  templates/
+    base.html                 # sidebar shell (Dashboard/Items/Suppliers/Tenders)
+    dashboard.html              # "/" — stat cards + recent tenders
+    items.html                   # "/items" — catalog list/search/create
+    suppliers.html                 # "/suppliers" — list/search/create
+    supplier_detail.html            # "/suppliers/{id}" — view/edit
+    tenders_list.html                # "/tenders" — list/create/import
+    tender_new.html                   # "/tenders/new"
+    tender_detail.html                 # "/tenders/{id}" — add item (from catalog),
+                                        # add supplier, quote grid, live CS
+    award_review.html                   # "/tenders/{id}/award"
+    purchase_proposal.html                # "/tenders/{id}/proposal" + Excel export
+docx_export.py (Phase 9, not yet built)   # purchase proposal + contract drafts
+docx_templates/ (Phase 9, not yet built)   # editable .docx templates
 tests/
-  test_cs_engine.py       # asserts against known-good numbers from CS.xlsx
+  test_excel_io.py
+  test_cs_engine.py
+  test_award_engine.py
 ```
+
+Items are **reusable catalog data** (`ItemMaster`, unique on
+`part_no + description` together — see `docs/data-model.md` for why part_no
+alone isn't unique, e.g. "NIV" non-inventory items). A tender's `Item` rows
+are just `(tender_id, item_master_id, qty, ...)` — quantity/LPR/award are
+per-tender, everything else comes from the catalog via `item.item_master`.
 
 ## Session protocol (read this every session)
 

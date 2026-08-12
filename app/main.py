@@ -11,8 +11,13 @@ from sqlmodel import Session, select
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
-from .excel_io import export_purchase_proposal_xlsx, get_or_create_supplier, import_tender
-from .models import Item, Quote, Supplier, Tender, TenderStatus
+from .excel_io import (
+    export_purchase_proposal_xlsx,
+    get_or_create_item_master,
+    get_or_create_supplier,
+    import_tender,
+)
+from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
 
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
@@ -31,21 +36,151 @@ def health():
 
 
 # ---------------------------------------------------------------------------
-# Home / tender list
+# Dashboard
 # ---------------------------------------------------------------------------
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, session: Session = Depends(get_session)):
+def dashboard(request: Request, session: Session = Depends(get_session)):
     tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
-    return templates.TemplateResponse(request, "home.html", {"tenders": tenders})
+    status_counts = {"draft": 0, "proposal_generated": 0, "awarded": 0}
+    for t in tenders:
+        status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
+
+    item_count = len(session.exec(select(ItemMaster)).all())
+    supplier_count = len(session.exec(select(Supplier)).all())
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "tender_count": len(tenders),
+            "status_counts": status_counts,
+            "item_count": item_count,
+            "supplier_count": supplier_count,
+            "recent_tenders": tenders[:8],
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
-# Create / import tenders
+# Item catalog (reusable across tenders)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/items", response_class=HTMLResponse)
+def items_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+    catalog = session.exec(select(ItemMaster)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        catalog = [
+            im for im in catalog if needle in im.part_no.lower() or needle in im.description.lower()
+        ]
+    catalog.sort(key=lambda im: (im.part_no, im.description))
+    return templates.TemplateResponse(request, "items.html", {"items": catalog, "q": q})
+
+
+@app.post("/items")
+def create_item(
+    part_no: str = Form(""),
+    description: str = Form(...),
+    default_unit: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    if not description.strip():
+        raise HTTPException(400, "Description is required")
+    get_or_create_item_master(session, part_no, description, default_unit)
+    session.commit()
+    return RedirectResponse("/items", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Supplier catalog (reusable across tenders)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/suppliers", response_class=HTMLResponse)
+def suppliers_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+    suppliers = session.exec(select(Supplier).order_by(Supplier.name)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        suppliers = [s for s in suppliers if needle in s.name.lower()]
+    return templates.TemplateResponse(request, "suppliers.html", {"suppliers": suppliers, "q": q})
+
+
+@app.post("/suppliers")
+def create_supplier(
+    name: str = Form(...),
+    address: str = Form(""),
+    contact_person: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+    tax_no: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    if not name.strip():
+        raise HTTPException(400, "Supplier name is required")
+    supplier = get_or_create_supplier(session, name)
+    for field, value in (
+        ("address", address),
+        ("contact_person", contact_person),
+        ("phone", phone),
+        ("email", email),
+        ("tax_no", tax_no),
+    ):
+        if value.strip():
+            setattr(supplier, field, value.strip())
+    session.add(supplier)
+    session.commit()
+    return RedirectResponse("/suppliers", status_code=303)
+
+
+@app.get("/suppliers/{supplier_id}", response_class=HTMLResponse)
+def supplier_detail(supplier_id: int, request: Request, session: Session = Depends(get_session)):
+    supplier = session.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
+    return templates.TemplateResponse(request, "supplier_detail.html", {"supplier": supplier})
+
+
+@app.post("/suppliers/{supplier_id}")
+def update_supplier(
+    supplier_id: int,
+    name: str = Form(...),
+    address: str = Form(""),
+    contact_person: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+    tax_no: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    supplier = session.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
+    if not name.strip():
+        raise HTTPException(400, "Supplier name is required")
+    supplier.name = name.strip()
+    supplier.address = address.strip() or None
+    supplier.contact_person = contact_person.strip() or None
+    supplier.phone = phone.strip() or None
+    supplier.email = email.strip() or None
+    supplier.tax_no = tax_no.strip() or None
+    session.add(supplier)
+    session.commit()
+    return RedirectResponse(f"/suppliers/{supplier_id}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Tenders: list, create, import
 # NOTE: these literal routes must be registered before GET /tenders/{tender_id}
 # so "new" doesn't get swallowed as a tender_id path param.
 # ---------------------------------------------------------------------------
+
+
+@app.get("/tenders", response_class=HTMLResponse)
+def tenders_list(request: Request, session: Session = Depends(get_session)):
+    tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
+    return templates.TemplateResponse(request, "tenders_list.html", {"tenders": tenders})
 
 
 @app.get("/tenders/new", response_class=HTMLResponse)
@@ -136,7 +271,8 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             }
         )
 
-    next_ser = (max((i.ser for i in items), default=0)) + 1
+    catalog_items = session.exec(select(ItemMaster)).all()
+    catalog_items.sort(key=lambda im: (im.part_no, im.description))
 
     return templates.TemplateResponse(
         request,
@@ -149,7 +285,7 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             "item_rows": item_rows,
             "firm_summaries": cs.firm_summaries,
             "grand_total": cs.grand_total,
-            "next_ser": next_ser,
+            "catalog_items": catalog_items,
         },
     )
 
@@ -157,10 +293,7 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
 @app.post("/tenders/{tender_id}/items")
 def add_item(
     tender_id: int,
-    ser: str = Form(...),
-    part_no: str = Form(""),
-    description: str = Form(...),
-    unit: str = Form(""),
+    item_master_id: str = Form(...),
     qty: str = Form(...),
     lpr: str = Form(""),
     session: Session = Depends(get_session),
@@ -170,13 +303,21 @@ def add_item(
         raise HTTPException(404, "Tender not found")
 
     try:
-        ser_val = int(ser)
+        item_master_id_val = int(item_master_id)
         qty_val = float(qty)
         lpr_val: Optional[float] = float(lpr) if lpr.strip() else None
     except ValueError:
-        raise HTTPException(400, "Ser/Qty/LPR must be numeric")
+        raise HTTPException(400, "Item/Qty/LPR must be valid")
+
+    item_master = session.get(ItemMaster, item_master_id_val)
+    if item_master is None:
+        raise HTTPException(400, "Unknown catalog item")
 
     existing_items = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
+    if any(i.item_master_id == item_master_id_val for i in existing_items):
+        raise HTTPException(400, "This item is already on this tender")
+
+    next_ser = (max((i.ser for i in existing_items), default=0)) + 1
     existing_item_ids = [i.id for i in existing_items]
     attached_supplier_ids = (
         {q.supplier_id for q in session.exec(select(Quote).where(Quote.item_id.in_(existing_item_ids))).all()}
@@ -186,10 +327,8 @@ def add_item(
 
     item = Item(
         tender_id=tender_id,
-        ser=ser_val,
-        part_no=part_no.strip(),
-        description=description.strip(),
-        unit=unit.strip(),
+        item_master_id=item_master_id_val,
+        ser=next_ser,
         qty=qty_val,
         lpr=lpr_val,
     )

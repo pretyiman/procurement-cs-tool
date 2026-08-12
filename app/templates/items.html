@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Items - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Item catalog</h1>
+<p class="muted">Reusable items - add one here once, then use it on any number of tenders.</p>
+
+<div class="card">
+  <form method="get" action="/items" class="row-form">
+    <div class="field">
+      <label for="q">Search part no. / description</label>
+      <input type="text" id="q" name="q" value="{{ q }}">
+    </div>
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn btn-secondary" href="/items">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Add catalog item</h2>
+  <form method="post" action="/items" class="row-form">
+    <div class="field" style="max-width:160px">
+      <label for="part_no">Part No (optional)</label>
+      <input type="text" id="part_no" name="part_no">
+    </div>
+    <div class="field" style="flex:2">
+      <label for="description">Description</label>
+      <input type="text" id="description" name="description" required>
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="default_unit">Unit</label>
+      <input type="text" id="default_unit" name="default_unit" placeholder="Nos, Kg...">
+    </div>
+    <button type="submit">Add item</button>
+  </form>
+</div>
+
+<h2>Catalog ({{ items|length }})</h2>
+<div class="card" style="overflow-x:auto">
+  {% if items %}
+  <table>
+    <thead><tr><th>Part No</th><th>Description</th><th>Unit</th></tr></thead>
+    <tbody>
+      {% for im in items %}
+      <tr><td>{{ im.part_no or '-' }}</td><td>{{ im.description }}</td><td>{{ im.default_unit or '-' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No catalog items {% if q %}match "{{ q }}"{% else %}yet - add one above{% endif %}.</p>
+  {% endif %}
+</div>
+{% endblock %}

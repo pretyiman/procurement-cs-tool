@@ -16,11 +16,11 @@
       {% for ai in group.items %}
       <tr>
         <td>{{ ai.item.ser }}</td>
-        <td>{{ ai.item.part_no }}</td>
-        <td>{{ ai.item.description }}
+        <td>{{ ai.item.item_master.part_no }}</td>
+        <td>{{ ai.item.item_master.description }}
           {% if ai.is_override %}<br><small class="muted">override: {{ ai.override_reason }}</small>{% endif %}
         </td>
-        <td>{{ ai.item.unit }}</td>
+        <td>{{ ai.item.item_master.default_unit }}</td>
         <td class="num">{{ ai.item.qty }}</td>
         <td class="num">{{ '%.2f'|format(ai.awarded_rate) }}</td>
         <td class="num">{{ '%.2f'|format(ai.total_value) }}</td>
@@ -46,8 +46,8 @@
     <tbody>
       {% for item in proposal.unresolved_items %}
       <tr>
-        <td>{{ item.ser }}</td><td>{{ item.part_no }}</td><td>{{ item.description }}</td>
-        <td>{{ item.unit }}</td><td class="num">{{ item.qty }}</td>
+        <td>{{ item.ser }}</td><td>{{ item.item_master.part_no }}</td><td>{{ item.item_master.description }}</td>
+        <td>{{ item.item_master.default_unit }}</td><td class="num">{{ item.qty }}</td>
       </tr>
       {% endfor %}
     </tbody>

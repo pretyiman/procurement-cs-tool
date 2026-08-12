@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ supplier.name }} - Procurement CS Tool{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="/suppliers">&larr; Suppliers</a></p>
+<h1>{{ supplier.name }}</h1>
+
+<div class="card" style="max-width:520px">
+  <form method="post" action="/suppliers/{{ supplier.id }}">
+    <div class="field">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" value="{{ supplier.name }}" required>
+    </div>
+    <div class="field">
+      <label for="address">Address</label>
+      <input type="text" id="address" name="address" value="{{ supplier.address or '' }}">
+    </div>
+    <div class="field">
+      <label for="contact_person">Contact person</label>
+      <input type="text" id="contact_person" name="contact_person" value="{{ supplier.contact_person or '' }}">
+    </div>
+    <div class="field">
+      <label for="phone">Phone</label>
+      <input type="text" id="phone" name="phone" value="{{ supplier.phone or '' }}">
+    </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="text" id="email" name="email" value="{{ supplier.email or '' }}">
+    </div>
+    <div class="field">
+      <label for="tax_no">Tax No. (NTN/STRN)</label>
+      <input type="text" id="tax_no" name="tax_no" value="{{ supplier.tax_no or '' }}">
+    </div>
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Suppliers - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Suppliers</h1>
+
+<div class="card">
+  <form method="get" action="/suppliers" class="row-form">
+    <div class="field">
+      <label for="q">Search name</label>
+      <input type="text" id="q" name="q" value="{{ q }}">
+    </div>
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn btn-secondary" href="/suppliers">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Add supplier</h2>
+  <form method="post" action="/suppliers" class="row-form">
+    <div class="field">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required>
+    </div>
+    <div class="field">
+      <label for="contact_person">Contact person</label>
+      <input type="text" id="contact_person" name="contact_person">
+    </div>
+    <div class="field">
+      <label for="phone">Phone</label>
+      <input type="text" id="phone" name="phone">
+    </div>
+    <button type="submit">Add supplier</button>
+  </form>
+</div>
+
+<h2>Suppliers ({{ suppliers|length }})</h2>
+<div class="card" style="overflow-x:auto">
+  {% if suppliers %}
+  <table>
+    <thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th></tr></thead>
+    <tbody>
+      {% for s in suppliers %}
+      <tr>
+        <td><a href="/suppliers/{{ s.id }}">{{ s.name }}</a></td>
+        <td>{{ s.contact_person or '-' }}</td>
+        <td>{{ s.phone or '-' }}</td>
+        <td>{{ s.email or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No suppliers {% if q %}match "{{ q }}"{% else %}yet - add one above{% endif %}.</p>
+  {% endif %}
+</div>
+{% endblock %}
