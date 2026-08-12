@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Quote Entry - {{ tender.inquiry_no }}{% endblock %}
+{% block content %}
+<h1>{{ tender.inquiry_no }} &mdash; Quote Entry</h1>
+<p class="muted">Enter one supplier's price for one item at a time. Selecting an item fills in its unit (and quantity, if it's already on this tender) automatically.</p>
+<p>
+  <a href="/tenders/{{ tender.id }}">&larr; Items &amp; quotes grid</a> &middot;
+  <a href="/tenders/{{ tender.id }}/award">Award Review</a> &middot;
+  <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
+</p>
+
+<div class="card">
+  <form method="post" action="/tenders/{{ tender.id }}/quote-entry" class="row-form" id="quote-entry-form">
+    <div class="field" style="flex:2">
+      <label for="item_master_id">Item</label>
+      <select id="item_master_id" name="item_master_id" required onchange="onItemChange(this)">
+        <option value="">-- select item --</option>
+        {% for im in catalog_items %}
+        <option value="{{ im.id }}" data-unit="{{ im.default_unit }}"
+                data-qty="{{ qty_by_item_master.get(im.id, '') }}">
+          {{ im.part_no }} - {{ im.description }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="max-width:90px">
+      <label for="unit_display">Unit</label>
+      <input type="text" id="unit_display" readonly>
+    </div>
+    <div class="field" style="max-width:100px">
+      <label for="qty">Qty</label>
+      <input type="text" id="qty" name="qty" required oninput="updateTotal()">
+    </div>
+    <div class="field">
+      <label for="supplier_name">Supplier</label>
+      <input type="text" id="supplier_name" name="supplier_name" list="supplier-names" required>
+      <datalist id="supplier-names">
+        {% for n in all_supplier_names %}<option value="{{ n }}">{% endfor %}
+      </datalist>
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="rate">Rate</label>
+      <input type="text" id="rate" name="rate" required oninput="updateTotal()">
+    </div>
+    <div class="field" style="max-width:110px">
+      <label>Total Value</label>
+      <div id="total_display" class="muted" style="padding:0.35rem 0">-</div>
+    </div>
+    <button type="submit">Save quotation</button>
+  </form>
+</div>
+
+<h2>Quotations recorded for this tender</h2>
+<div class="card" style="overflow-x:auto">
+  {% if recorded %}
+  <table>
+    <thead><tr><th>Ser</th><th>Part No</th><th>Description</th><th>Supplier</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+    <tbody>
+      {% for r in recorded %}
+      <tr>
+        <td>{{ r.ser }}</td><td>{{ r.part_no }}</td><td>{{ r.description }}</td>
+        <td>{{ r.supplier_name }}</td><td class="num">{{ r.qty }}</td>
+        <td class="num">{{ '%.2f'|format(r.rate) }}</td><td class="num">{{ '%.2f'|format(r.total) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No quotations recorded yet - use the form above.</p>
+  {% endif %}
+</div>
+
+<script>
+function onItemChange(select) {
+  var opt = select.options[select.selectedIndex];
+  document.getElementById('unit_display').value = opt ? (opt.dataset.unit || '') : '';
+  document.getElementById('qty').value = opt ? (opt.dataset.qty || '') : '';
+  updateTotal();
+}
+function updateTotal() {
+  var qty = parseFloat(document.getElementById('qty').value);
+  var rate = parseFloat(document.getElementById('rate').value);
+  var display = document.getElementById('total_display');
+  display.textContent = (!isNaN(qty) && !isNaN(rate)) ? (qty * rate).toFixed(2) : '-';
+}
+</script>
+{% endblock %}

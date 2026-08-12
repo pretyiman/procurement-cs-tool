@@ -233,7 +233,7 @@ the old `/`) still lists/creates/imports tenders exactly as before.
 ---
 
 ## Phase 7 — Guided quotation-entry page
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** A single-line entry workflow matching how a procurement officer
 actually receives a quotation (one supplier's price for one item at a
@@ -259,6 +259,20 @@ persisted); entering a second supplier's rate for an already-added item
 does not duplicate or disturb the first supplier's quote; the resulting
 comparative statement/lowest calculation is unaffected by which entry
 path (grid vs this page) was used to get the data in.
+
+**Confirmed:** `pytest tests/test_quote_entry.py` (3 new tests, first use
+of FastAPI's `TestClient` with a `get_session` dependency override rather
+than calling engine functions directly) passes: a new item creates both
+the line and quote, a second supplier's quote on the same item doesn't
+touch the first, and re-submitting the same item updates qty/rate in
+place rather than duplicating. `pytest tests/` (17 total) all green.
+Manually verified on a running server against the imported fixture:
+selecting an existing item auto-filled its unit and current qty (data
+attributes confirmed in the rendered HTML); adding a brand-new 4th
+supplier's quote (Rs 300, undercutting SNS's 350) through this page
+immediately changed the lowest-cell highlight and total on the grid page
+(`/tenders/{id}`) to that new supplier - confirming both entry paths
+write through the same tables and cs_engine picks it up either way.
 
 ---
 

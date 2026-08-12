@@ -405,6 +405,138 @@ async def save_quotes(tender_id: int, request: Request, session: Session = Depen
     return RedirectResponse(f"/tenders/{tender_id}#cs-view", status_code=303)
 
 
+def _ensure_full_grid(session: Session, tender_id: int) -> None:
+    """Backfill a blank (NQ) Quote row for every (item, supplier) pair that
+    doesn't have one yet, so the grid view (tender_detail.html) stays
+    rectangular regardless of which entry path (grid vs quote-entry) added
+    data. Doesn't affect cs_engine's calculations either way - a missing
+    row and a rate=None row are equivalent there."""
+    items = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
+    if not items:
+        return
+    item_ids = [i.id for i in items]
+    quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all()
+    supplier_ids = {q.supplier_id for q in quotes}
+    existing_pairs = {(q.item_id, q.supplier_id) for q in quotes}
+    for item in items:
+        for supplier_id in supplier_ids:
+            if (item.id, supplier_id) not in existing_pairs:
+                session.add(Quote(item_id=item.id, supplier_id=supplier_id, rate=None))
+
+
+# ---------------------------------------------------------------------------
+# Guided quotation entry: one supplier's price for one item at a time
+# ---------------------------------------------------------------------------
+
+
+@app.get("/tenders/{tender_id}/quote-entry", response_class=HTMLResponse)
+def quote_entry_form(tender_id: int, request: Request, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    catalog_items = session.exec(select(ItemMaster)).all()
+    catalog_items.sort(key=lambda im: (im.part_no, im.description))
+
+    lines = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
+    qty_by_item_master = {line.item_master_id: line.qty for line in lines}
+    lines_by_id = {line.id: line for line in lines}
+
+    all_supplier_names = [
+        s.name for s in session.exec(select(Supplier).order_by(Supplier.name)).all()
+    ]
+    suppliers_by_id = {s.id: s for s in session.exec(select(Supplier)).all()}
+
+    line_ids = list(lines_by_id.keys())
+    quotes = (
+        session.exec(select(Quote).where(Quote.item_id.in_(line_ids))).all() if line_ids else []
+    )
+    recorded = []
+    for q in quotes:
+        if q.rate is None:
+            continue
+        line = lines_by_id[q.item_id]
+        recorded.append(
+            {
+                "ser": line.ser,
+                "part_no": line.item_master.part_no,
+                "description": line.item_master.description,
+                "supplier_name": suppliers_by_id[q.supplier_id].name,
+                "qty": line.qty,
+                "rate": q.rate,
+                "total": line.qty * q.rate,
+            }
+        )
+    recorded.sort(key=lambda r: (r["ser"], r["supplier_name"]))
+
+    return templates.TemplateResponse(
+        request,
+        "quote_entry.html",
+        {
+            "tender": tender,
+            "catalog_items": catalog_items,
+            "qty_by_item_master": qty_by_item_master,
+            "all_supplier_names": all_supplier_names,
+            "recorded": recorded,
+        },
+    )
+
+
+@app.post("/tenders/{tender_id}/quote-entry")
+def submit_quote_entry(
+    tender_id: int,
+    item_master_id: str = Form(...),
+    qty: str = Form(...),
+    supplier_name: str = Form(...),
+    rate: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    try:
+        item_master_id_val = int(item_master_id)
+        qty_val = float(qty)
+        rate_val = float(rate)
+    except ValueError:
+        raise HTTPException(400, "Item/Qty/Rate must be valid")
+
+    item_master = session.get(ItemMaster, item_master_id_val)
+    if item_master is None:
+        raise HTTPException(400, "Unknown catalog item")
+    if not supplier_name.strip():
+        raise HTTPException(400, "Supplier is required")
+
+    existing_lines = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
+    line = next((i for i in existing_lines if i.item_master_id == item_master_id_val), None)
+    if line is None:
+        next_ser = (max((i.ser for i in existing_lines), default=0)) + 1
+        line = Item(tender_id=tender_id, item_master_id=item_master_id_val, ser=next_ser, qty=qty_val)
+        session.add(line)
+        session.flush()
+    else:
+        line.qty = qty_val
+        session.add(line)
+
+    supplier = get_or_create_supplier(session, supplier_name)
+
+    quote = session.exec(
+        select(Quote).where(Quote.item_id == line.id, Quote.supplier_id == supplier.id)
+    ).first()
+    if quote is None:
+        session.add(Quote(item_id=line.id, supplier_id=supplier.id, rate=rate_val))
+    else:
+        quote.rate = rate_val
+        session.add(quote)
+
+    session.flush()
+    _ensure_full_grid(session, tender_id)
+
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}/quote-entry", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Award review (default-to-lowest + manual override) and Purchase Proposal
 # ---------------------------------------------------------------------------
