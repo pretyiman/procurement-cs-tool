@@ -277,7 +277,7 @@ write through the same tables and cs_engine picks it up either way.
 ---
 
 ## Phase 8 — Visual award comparison (Award Review redesign)
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Per user feedback, replace the dropdown-based override control
 with a side-by-side price comparison: for each item, show every quoting
@@ -295,6 +295,19 @@ immediately with no reason prompt; clicking a non-lowest pill without
 first typing a reason is rejected with the same error `validate_override`
 already produces; the resulting Purchase Proposal reflects the click
 exactly as it did the old dropdown-based override in Phase 4's tests.
+
+**Confirmed:** No `award_engine.py` changes needed - `validate_override`/
+`resolve_award` were already correct, this was purely `award_review.html`
++ passing `lowest_supplier_id` through in `main.py`. `pytest tests/` (17,
+unchanged) still passes. Manually verified on a fully-restarted server
+(see "Known environment quirk" in `CLAUDE.md` - a `--reload` artifact
+briefly looked like a real bug here before a clean restart proved
+otherwise): the lowest-priced pill renders with the green "Lowest" badge
+and `.awarded` outline by default; clicking a non-lowest pill without a
+reason is rejected (400); clicking it with a reason succeeds, moves the
+`.awarded` outline to that pill while the `.lowest` badge correctly stays
+on the actual cheapest option, and shows a "Reset to lowest" button which
+correctly clears the override when clicked.
 
 ---
 

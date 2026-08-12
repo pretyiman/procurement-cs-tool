@@ -571,6 +571,7 @@ def award_review(tender_id: int, request: Request, session: Session = Depends(ge
         rows.append(
             {
                 "item": ai.item,
+                "lowest_supplier_id": result.lowest_supplier_id,
                 "lowest_name": cs.suppliers_by_id[result.lowest_supplier_id].name
                 if result.lowest_supplier_id
                 else None,

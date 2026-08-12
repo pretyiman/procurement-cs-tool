@@ -105,6 +105,17 @@ per-tender, everything else comes from the catalog via `item.item_master`.
    "Frozen tech decisions" seems wrong once you're in the code, stop and
    flag it instead of silently switching.
 
+## Known environment quirk
+
+`uvicorn --reload` (WatchFiles) on this Windows setup has, twice, silently
+failed to pick up a `main.py` edit - it logged no reload event and kept
+serving stale code, which looked exactly like a real bug in the new code
+until a full process restart (kill + relaunch, no `--reload`) proved the
+code was correct. If a manual verification against a running `--reload`
+server shows a result that contradicts what a direct DB/engine check
+confirms is correct, restart the server fully before concluding there's an
+actual bug.
+
 ## Data sensitivity
 
 `CS.xlsx` in this repo is a **dummy/sample** dataset used only to validate
