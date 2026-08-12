@@ -1,3 +1,4 @@
+import datetime
 import json
 import shutil
 import tempfile
@@ -15,6 +16,7 @@ from .award_engine import build_purchase_proposal, resolve_awarded_items, valida
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
 from .docx_export import generate_contract_draft
+from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .excel_io import (
     export_cs_xlsx,
@@ -355,6 +357,9 @@ def add_item(
     if item_master is None:
         raise HTTPException(400, "Unknown catalog item")
 
+    if lpr_val is None:
+        lpr_val = get_last_purchase_rate(session, item_master_id_val, exclude_tender_id=tender_id)
+
     existing_items = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
     if any(i.item_master_id == item_master_id_val for i in existing_items):
         raise HTTPException(400, "This item is already on this tender")
@@ -566,7 +571,10 @@ def submit_quote_entry(
     line = next((i for i in existing_lines if i.item_master_id == item_master_id_val), None)
     if line is None:
         next_ser = (max((i.ser for i in existing_lines), default=0)) + 1
-        line = Item(tender_id=tender_id, item_master_id=item_master_id_val, ser=next_ser, qty=qty_val)
+        lpr_val = get_last_purchase_rate(session, item_master_id_val, exclude_tender_id=tender_id)
+        line = Item(
+            tender_id=tender_id, item_master_id=item_master_id_val, ser=next_ser, qty=qty_val, lpr=lpr_val
+        )
         session.add(line)
         session.flush()
     else:
@@ -710,6 +718,7 @@ def mark_awarded(tender_id: int, session: Session = Depends(get_session)):
     if tender.status != TenderStatus.proposal_generated:
         raise HTTPException(400, "Generate the proposal before finalizing the award")
     tender.status = TenderStatus.awarded
+    tender.awarded_date = datetime.date.today()
     session.add(tender)
     session.commit()
     return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
