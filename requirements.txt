@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+openpyxl
+python-multipart
+jinja2
+pytest
+httpx

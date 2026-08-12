@@ -63,9 +63,12 @@ changes; code and `PLAN.md` verification steps should match it.
 ## Regression fixture: CS.xlsx (dummy data, repo root)
 
 This file is the ground truth for the calculation engine (Phase 2). It has
-21 items, 3 suppliers (M/s Awan Tech, M/s SNS Enterprises, M/s Libra
-Enterprises), with some items unquoted by all firms (rows 5 and 21, both
-"NQ" across the board -> excluded from totals).
+**23 item rows** (Ser 1-23), 3 suppliers (M/s Awan Tech, M/s SNS
+Enterprises, M/s Libra Enterprises). Of those 23 items, **2 were NQ by all
+three firms** (Ser 1 "Powder green silicon w-20" and Ser 21 "Apexior
+Compound Paint No-3") and are excluded from totals, leaving **21 awarded
+items** — which is where the "21" in the summary block below comes from.
+Don't confuse total item rows (23) with awarded items (21).
 
 Known-good aggregate numbers the engine must reproduce exactly:
 
@@ -80,7 +83,6 @@ was beaten by Awan or SNS — so they don't appear in the firm summary. The
 tool must handle a "quoted but won nothing" supplier correctly, i.e. they
 still exist as a Supplier record, just contribute 0 to the summary.)
 
-Note: two items (Ser 1 "Powder green silicon w-20" and Ser 21 "Apexior
-Compound Paint No-3") were NQ by all three firms — these must be excluded
-from totals but still shown in the CS with a lowest rate/value of 0 or
-blank, matching the source file's behavior.
+Ser 1 and Ser 21 (NQ by all three firms, see above) must be excluded from
+totals but still shown in the CS with a lowest rate/value of 0 or blank,
+matching the source file's behavior.

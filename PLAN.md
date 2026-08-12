@@ -12,7 +12,7 @@ Git repo initialized, `CLAUDE.md`, `PLAN.md`, `docs/data-model.md`,
 ---
 
 ## Phase 1 — Project skeleton, DB models, Excel import
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** A runnable (empty) FastAPI app with the DB schema from
 `docs/data-model.md`, plus a script/endpoint to import a tender's items and
@@ -27,9 +27,16 @@ per-supplier quotes from an Excel file shaped like `CS.xlsx`.
 - SQLite file created on first run, tables auto-created
 
 **Verification:**
-- Running the import against `CS.xlsx` produces: 1 tender, 21 items, 3
-  suppliers, and the correct count of Quote rows (some null for NQ cells).
+- Running the import against `CS.xlsx` produces: 1 tender, **23 items**
+  (Ser 1-23, including the 2 that were NQ by every firm), 3 suppliers, and
+  23*3 = 69 Quote rows (some null for NQ cells). See `docs/data-model.md`
+  for why 23 total items yields 21 *awarded* items downstream.
 - `pytest tests/test_excel_io.py` passes.
+
+**Confirmed:** `pytest tests/` (3 tests) passes, and a live run through the
+actual HTTP API (`POST /tenders/import` then `GET /tenders/1`) returned
+`item_count: 23, supplier_count: 3, quote_count: 69` against the real
+`CS.xlsx` — matches exactly.
 
 ---
 
