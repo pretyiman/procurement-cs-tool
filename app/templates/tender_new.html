@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}New Tender{% endblock %}
+{% block title %}New RFQ{% endblock %}
 {% block content %}
-<h1>New tender</h1>
+<h1>New RFQ</h1>
 <div class="card" style="max-width:420px">
   <form method="post" action="/tenders">
     <div class="field">
-      <label for="inquiry_no">Tender Inquiry No.</label>
+      <label for="inquiry_no">RFQ Inquiry No.</label>
       <input type="text" id="inquiry_no" name="inquiry_no" required autofocus>
     </div>
     <div class="field">
@@ -23,7 +23,7 @@
       <label for="tax_percent">Tax %</label>
       <input type="text" id="tax_percent" name="tax_percent" value="18">
     </div>
-    <button type="submit">Create tender</button>
+    <button type="submit">Create RFQ</button>
     <a href="/" class="btn btn-secondary" style="margin-left:0.5rem">Cancel</a>
   </form>
 </div>
@@ -31,7 +31,7 @@
 {% if tender_templates %}
 <h2>Or start from a saved template</h2>
 <div class="card" style="max-width:420px">
-  <p class="muted" style="margin-top:0">Pre-fills the item list (and quantities) from a previous recurring tender - suppliers/quotes are always entered fresh.</p>
+  <p class="muted" style="margin-top:0">Pre-fills the item list (and quantities) from a previous recurring RFQ - suppliers/quotes are always entered fresh.</p>
   <form method="post" action="/templates/create-tender">
     <div class="field">
       <label for="template_id">Template</label>
@@ -42,7 +42,7 @@
       </select>
     </div>
     <div class="field">
-      <label for="template_inquiry_no">Tender Inquiry No.</label>
+      <label for="template_inquiry_no">RFQ Inquiry No.</label>
       <input type="text" id="template_inquiry_no" name="inquiry_no" required>
     </div>
     <div class="field">
@@ -60,9 +60,9 @@
       <label for="template_tax_percent">Tax %</label>
       <input type="text" id="template_tax_percent" name="tax_percent" value="18">
     </div>
-    <button type="submit">Create tender from template</button>
+    <button type="submit">Create RFQ from template</button>
   </form>
 </div>
 {% endif %}
-<p><a href="/templates">Manage tender templates &rarr;</a></p>
+<p><a href="/templates">Manage RFQ templates &rarr;</a></p>
 {% endblock %}

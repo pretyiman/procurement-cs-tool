@@ -4,7 +4,7 @@
 <h1>Dashboard</h1>
 
 <div class="stat-grid">
-  <div class="stat-card"><div class="value">{{ tender_count }}</div><div class="label">Tenders</div></div>
+  <div class="stat-card"><div class="value">{{ tender_count }}</div><div class="label">RFQs</div></div>
   <div class="stat-card"><div class="value">{{ status_counts.get('draft', 0) }}</div><div class="label">Draft</div></div>
   <div class="stat-card"><div class="value">{{ status_counts.get('proposal_generated', 0) }}</div><div class="label">Proposal generated</div></div>
   <div class="stat-card"><div class="value">{{ status_counts.get('awarded', 0) }}</div><div class="label">Awarded</div></div>
@@ -12,9 +12,9 @@
   <div class="stat-card"><div class="value">{{ supplier_count }}</div><div class="label">Suppliers</div></div>
 </div>
 
-<p><a class="btn" href="/tenders/new">+ New tender</a> <a class="btn btn-secondary" href="/tenders">View all tenders</a></p>
+<p><a class="btn" href="/tenders/new">+ New RFQ</a> <a class="btn btn-secondary" href="/tenders">View all RFQs</a></p>
 
-<h2>Recent tenders</h2>
+<h2>Recent RFQs</h2>
 <div class="card">
   {% if recent_tenders %}
   <table>
@@ -30,7 +30,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty">No tenders yet. <a href="/tenders/new">Create one</a> or import an existing Comparative Statement from the <a href="/tenders">Tenders</a> page.</p>
+  <p class="empty">No RFQs yet. <a href="/tenders/new">Create one</a> or import an existing Comparative Statement from the <a href="/tenders">RFQs</a> page.</p>
   {% endif %}
 </div>
 {% endblock %}

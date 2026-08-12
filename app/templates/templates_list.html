@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Tender Templates - Procurement CS Tool{% endblock %}
+{% block title %}RFQ Templates - Procurement CS Tool{% endblock %}
 {% block content %}
-<h1>Tender Templates</h1>
-<p class="muted">Saved item lists from recurring tenders. Use one from <a href="/tenders/new">New Tender</a> to skip re-adding the same items every time.</p>
+<h1>RFQ Templates</h1>
+<p class="muted">Saved item lists from recurring RFQs. Use one from <a href="/tenders/new">New RFQ</a> to skip re-adding the same items every time.</p>
 
 <div class="card" style="overflow-x:auto">
   {% if rows %}
@@ -24,7 +24,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty">No templates saved yet. Open any tender with items and use "Save as Template".</p>
+  <p class="empty">No templates saved yet. Open any RFQ with items and use "Save as Template".</p>
   {% endif %}
 </div>
 {% endblock %}

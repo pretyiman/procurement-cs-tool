@@ -19,10 +19,10 @@
   </form>
   {% elif tender.status.value == "proposal_generated" %}
   <form method="post" action="/tenders/{{ tender.id }}/mark-awarded">
-    <button type="submit">Finalize - mark tender as awarded</button>
+    <button type="submit">Finalize - mark RFQ as awarded</button>
   </form>
   {% elif tender.status.value == "awarded" %}
-  <p class="muted" style="margin-bottom:0">This tender is finalized - all contracts have been awarded.</p>
+  <p class="muted" style="margin-bottom:0">This RFQ is finalized - all contracts have been awarded.</p>
   {% else %}
   <p class="muted" style="margin-bottom:0">Award at least one item (Award Review) before generating the proposal.</p>
   {% endif %}

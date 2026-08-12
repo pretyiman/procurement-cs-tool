@@ -2,7 +2,7 @@
 {% block title %}Quote Entry - {{ tender.inquiry_no }}{% endblock %}
 {% block content %}
 <h1>{{ tender.inquiry_no }} &mdash; Quote Entry</h1>
-<p class="muted">Enter one supplier's price for one item at a time. Selecting an item fills in its unit (and quantity, if it's already on this tender) automatically.</p>
+<p class="muted">Enter one supplier's price for one item at a time. Selecting an item fills in its unit (and quantity, if it's already on this RFQ) automatically.</p>
 <p>
   <a href="/tenders/{{ tender.id }}">&larr; Items &amp; quotes grid</a> &middot;
   <a href="/tenders/{{ tender.id }}/award">Award Review</a> &middot;
@@ -48,7 +48,7 @@
   </form>
 </div>
 
-<h2>Quotations recorded for this tender</h2>
+<h2>Quotations recorded for this RFQ</h2>
 <div class="card" style="overflow-x:auto">
   {% if recorded %}
   <table>

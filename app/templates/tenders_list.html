@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Tenders - Procurement CS Tool{% endblock %}
+{% block title %}RFQs - Procurement CS Tool{% endblock %}
 {% block content %}
-<h1>Tenders</h1>
+<h1>RFQs</h1>
 
 <div class="card">
-  <h2 style="margin-top:0">Start a tender</h2>
+  <h2 style="margin-top:0">Start an RFQ</h2>
   <div class="row-form">
-    <a class="btn" href="/tenders/new">+ Create tender manually</a>
+    <a class="btn" href="/tenders/new">+ Create RFQ manually</a>
   </div>
   <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0">
   <form method="post" action="/tenders/import-ui" enctype="multipart/form-data" class="row-form">
@@ -18,7 +18,7 @@
   </form>
 </div>
 
-<h2>Existing tenders</h2>
+<h2>Existing RFQs</h2>
 {% if tenders %}
 <table class="tender-list">
   <thead><tr><th>Inquiry No.</th><th>Tax</th><th>Status</th></tr></thead>
@@ -33,6 +33,6 @@
   </tbody>
 </table>
 {% else %}
-<p class="empty">No tenders yet. Create one or import an existing Comparative Statement above.</p>
+<p class="empty">No RFQs yet. Create one or import an existing Comparative Statement above.</p>
 {% endif %}
 {% endblock %}

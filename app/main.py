@@ -391,19 +391,7 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
     cs = build_comparative_statement(session, tender_id)
     attached_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
 
-    item_rows = []
-    for r in cs.item_results:
-        lowest_name = cs.suppliers_by_id[r.lowest_supplier_id].name if r.lowest_supplier_id else None
-        item_rows.append(
-            {
-                "item": r.item,
-                "lowest_supplier_id": r.lowest_supplier_id,
-                "lowest_name": lowest_name,
-                "lowest_rate": r.lowest_rate,
-                "total_value": r.total_value,
-                "inc_dec_pct": r.inc_dec_pct,
-            }
-        )
+    item_rows = [{"item": r.item, "lowest_supplier_id": r.lowest_supplier_id} for r in cs.item_results]
 
     catalog_items = session.exec(select(ItemMaster)).all()
     catalog_items.sort(key=lambda im: (im.part_no, im.description))
@@ -419,8 +407,6 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             "suppliers": attached_suppliers,
             "rate_matrix": rate_matrix,
             "item_rows": item_rows,
-            "firm_summaries": cs.firm_summaries,
-            "grand_total": cs.grand_total,
             "catalog_items_json": catalog_items_json,
         },
     )
@@ -528,7 +514,7 @@ async def save_quotes(tender_id: int, request: Request, session: Session = Depen
             session.add(quote)
 
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}#cs-view", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}#quotes", status_code=303)
 
 
 def _ensure_full_grid(session: Session, tender_id: int) -> None:
