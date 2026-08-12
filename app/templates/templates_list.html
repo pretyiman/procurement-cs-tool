@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Tender Templates - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Tender Templates</h1>
+<p class="muted">Saved item lists from recurring tenders. Use one from <a href="/tenders/new">New Tender</a> to skip re-adding the same items every time.</p>
+
+<div class="card" style="overflow-x:auto">
+  {% if rows %}
+  <table>
+    <thead><tr><th>Name</th><th class="num">Items</th><th></th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.template.name }}</td>
+        <td class="num">{{ row.item_count }}</td>
+        <td>
+          <form method="post" action="/templates/{{ row.template.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Delete template &quot;{{ row.template.name }}&quot;?');">
+            <button type="submit" class="btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No templates saved yet. Open any tender with items and use "Save as Template".</p>
+  {% endif %}
+</div>
+{% endblock %}

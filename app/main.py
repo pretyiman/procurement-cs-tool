@@ -25,7 +25,17 @@ from .excel_io import (
     get_or_create_supplier,
     import_tender,
 )
-from .models import Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
+from .models import (
+    Item,
+    ItemMaster,
+    Quote,
+    Supplier,
+    TaxType,
+    Tender,
+    TenderStatus,
+    TenderTemplate,
+    TenderTemplateItem,
+)
 
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
@@ -197,9 +207,112 @@ def tenders_list(request: Request, session: Session = Depends(get_session)):
     return templates.TemplateResponse(request, "tenders_list.html", {"tenders": tenders})
 
 
+# ---------------------------------------------------------------------------
+# Tender templates: save a recurring tender's item list, reuse it later
+# ---------------------------------------------------------------------------
+
+
+@app.get("/templates", response_class=HTMLResponse)
+def templates_list(request: Request, session: Session = Depends(get_session)):
+    tender_templates = session.exec(select(TenderTemplate).order_by(TenderTemplate.name)).all()
+    rows = []
+    for t in tender_templates:
+        lines = session.exec(
+            select(TenderTemplateItem).where(TenderTemplateItem.template_id == t.id)
+        ).all()
+        rows.append({"template": t, "item_count": len(lines)})
+    return templates.TemplateResponse(request, "templates_list.html", {"rows": rows})
+
+
+@app.post("/tenders/{tender_id}/save-as-template")
+def save_as_template(tender_id: int, name: str = Form(...), session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    if not name.strip():
+        raise HTTPException(400, "Template name is required")
+
+    items = session.exec(
+        select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)
+    ).all()
+    if not items:
+        raise HTTPException(400, "This tender has no items to save")
+
+    existing = session.exec(select(TenderTemplate).where(TenderTemplate.name == name.strip())).first()
+    if existing is not None:
+        raise HTTPException(400, "A template with that name already exists")
+
+    template = TenderTemplate(name=name.strip())
+    session.add(template)
+    session.flush()
+    for item in items:
+        session.add(
+            TenderTemplateItem(
+                template_id=template.id, item_master_id=item.item_master_id, ser=item.ser, qty=item.qty
+            )
+        )
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}", status_code=303)
+
+
+@app.post("/templates/create-tender")
+def create_tender_from_template(
+    template_id: str = Form(...),
+    inquiry_no: str = Form(...),
+    tax_type: str = Form("GST"),
+    tax_percent: str = Form("18"),
+    session: Session = Depends(get_session),
+):
+    try:
+        template_id_val = int(template_id)
+    except ValueError:
+        raise HTTPException(400, "Pick a template")
+    template = session.get(TenderTemplate, template_id_val)
+    if template is None:
+        raise HTTPException(404, "Template not found")
+    try:
+        tax_pct = float(tax_percent)
+        tax_type_val = TaxType(tax_type)
+    except ValueError:
+        raise HTTPException(400, "Invalid tax type/percent")
+
+    tender = Tender(
+        inquiry_no=inquiry_no.strip(), tax_type=tax_type_val, tax_percent=tax_pct, status=TenderStatus.draft
+    )
+    session.add(tender)
+    session.flush()
+
+    lines = session.exec(
+        select(TenderTemplateItem)
+        .where(TenderTemplateItem.template_id == template_id_val)
+        .order_by(TenderTemplateItem.ser)
+    ).all()
+    for line in lines:
+        session.add(
+            Item(tender_id=tender.id, item_master_id=line.item_master_id, ser=line.ser, qty=line.qty)
+        )
+    session.commit()
+    session.refresh(tender)
+    return RedirectResponse(f"/tenders/{tender.id}", status_code=303)
+
+
+@app.post("/templates/{template_id}/delete")
+def delete_template(template_id: int, session: Session = Depends(get_session)):
+    template = session.get(TenderTemplate, template_id)
+    if template is None:
+        raise HTTPException(404, "Template not found")
+    lines = session.exec(select(TenderTemplateItem).where(TenderTemplateItem.template_id == template_id)).all()
+    for line in lines:
+        session.delete(line)
+    session.delete(template)
+    session.commit()
+    return RedirectResponse("/templates", status_code=303)
+
+
 @app.get("/tenders/new", response_class=HTMLResponse)
-def new_tender_form(request: Request):
-    return templates.TemplateResponse(request, "tender_new.html", {})
+def new_tender_form(request: Request, session: Session = Depends(get_session)):
+    tender_templates = session.exec(select(TenderTemplate).order_by(TenderTemplate.name)).all()
+    return templates.TemplateResponse(request, "tender_new.html", {"tender_templates": tender_templates})
 
 
 @app.post("/tenders")

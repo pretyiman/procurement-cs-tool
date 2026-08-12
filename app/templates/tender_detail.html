@@ -9,6 +9,19 @@
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
 </p>
 
+{% if item_rows %}
+<details style="margin-bottom:1rem">
+  <summary class="muted" style="cursor:pointer">Save this item list as a template for future recurring tenders</summary>
+  <form method="post" action="/tenders/{{ tender.id }}/save-as-template" class="row-form" style="margin-top:0.5rem">
+    <div class="field">
+      <label for="template_name">Template name</label>
+      <input type="text" id="template_name" name="name" required placeholder="e.g. Quarterly Office Supplies">
+    </div>
+    <button type="submit">Save as template</button>
+  </form>
+</details>
+{% endif %}
+
 <div class="card">
   <h2 style="margin-top:0">Add item to this tender</h2>
   <p class="muted">Items come from the <a href="/items">item catalog</a> - add a new catalog item there first if it doesn't exist yet.</p>
