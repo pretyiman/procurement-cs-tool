@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
 
@@ -268,15 +268,25 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
         row += 1
 
     tax_label = cs.tender.tax_type.value
-    row += 1
-    ws.cell(row=row, column=1, value=f"Total Amount Excl {cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
-    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.store_value)
-    row += 1
-    ws.cell(row=row, column=1, value=f"{cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
-    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.tax_amount)
-    row += 1
-    ws.cell(row=row, column=1, value=f"Total Amount Incl {cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
-    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.contract_value)
+    right_align = Alignment(horizontal="right", vertical="center")
+
+    def _total_label_row(label: str, value: float) -> None:
+        nonlocal row
+        cell = ws.cell(row=row, column=1, value=label)
+        cell.font = bold
+        cell.alignment = right_align
+        # Merged right up to the column before the value, so the
+        # right-aligned label sits flush against its value - matching
+        # the original CS.xlsx (merged A:J there) instead of leaving a
+        # big gap between a left-aligned label and a far-right value.
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=lowest_col + 1)
+        ws.cell(row=row, column=lowest_col + 2, value=value)
+        row += 1
+
+    row += 1  # blank spacer row between the item list and the totals
+    _total_label_row(f"Total Amount Excl {cs.tender.tax_percent:g}% {tax_label} (Rs)", cs.grand_total.store_value)
+    _total_label_row(f"{cs.tender.tax_percent:g}% {tax_label} (Rs)", cs.grand_total.tax_amount)
+    _total_label_row(f"Total Amount Incl {cs.tender.tax_percent:g}% {tax_label} (Rs)", cs.grand_total.contract_value)
 
     row += 2
     ws.cell(row=row, column=4, value="SUMMARY").font = bold
@@ -300,13 +310,43 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(row=row, column=8, value=cs.grand_total.tax_amount).font = bold
     ws.cell(row=row, column=9, value=cs.grand_total.contract_value).font = bold
 
-    # Signature/approval line, matching CS.xlsx's own "COUNTERSIGNED" -
-    # a paper-based countersignature area, not a structured digital block.
-    row += 8
+    # Signature/approval block, matching CS.xlsx's own multi-signatory
+    # chain (Prep By -> Checked by -> HEAD QAC -> COUNTERSIGNED -> FMSAD).
+    # The original stores these as floating text boxes (drawing1.xml) with
+    # a specific person's name in each (e.g. "Prep By Lnk/Clk Zaheer") -
+    # openpyxl can't reliably create floating shapes, and a specific name
+    # doesn't belong in a reusable template anyway (same call made for the
+    # PP/CA Word templates), so this reproduces it with ordinary bordered
+    # cells: a blank line for the real approver to sign, with only the
+    # standing role label kept, not the dummy name.
+    def _sig_slot(line_row: int, col_start: int, col_end: int, label: str, halign: str) -> None:
+        bottom_border = Border(bottom=Side(style="thin"))
+        for c in range(col_start, col_end + 1):
+            ws.cell(row=line_row, column=c).border = bottom_border
+        if col_end > col_start:
+            ws.merge_cells(start_row=line_row, start_column=col_start, end_row=line_row, end_column=col_end)
+        label_cell = ws.cell(row=line_row + 1, column=col_start, value=label)
+        label_cell.font = Font(size=9)
+        label_cell.alignment = Alignment(horizontal=halign, vertical="center")
+        if col_end > col_start:
+            ws.merge_cells(start_row=line_row + 1, start_column=col_start, end_row=line_row + 1, end_column=col_end)
+
+    row += 3
+    right_start = max(lowest_col, incdec_col - 2)
+    _sig_slot(row, 1, 3, "Prep By", halign="left")
+    _sig_slot(row, right_start, incdec_col, "Checked by", halign="right")
+
+    row += 3
+    _sig_slot(row, 1, incdec_col, "HEAD QAC (TDA)", halign="center")
+
+    row += 3
     sig_cell = ws.cell(row=row, column=1, value="COUNTERSIGNED")
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=incdec_col)
+
+    row += 3
+    _sig_slot(row, 1, incdec_col, "FMSAD (XDS)", halign="center")
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12
