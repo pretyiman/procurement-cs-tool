@@ -1,5 +1,11 @@
 # MVP Plan — Procurement Comparative Statement & Award Tool
 
+**All 11 phases are Done — the MVP is complete.** Import/enter quotes,
+compare, award (with override), generate a Purchase Proposal, download
+per-firm Contract Award Drafts, export a CS matching the original
+`CS.xlsx` template, and run it all as a standalone packaged app. See
+"Deferred to v2" at the bottom for what's deliberately out of scope.
+
 Status legend: `Not Started` / `In Progress` / `Done`. A phase is `Done`
 only when its Verification steps pass, not just when code exists. See
 `CLAUDE.md` for session protocol and `docs/data-model.md` for schema.
@@ -406,7 +412,7 @@ row matches the known grand total (2,300,860) exactly.
 ---
 
 ## Phase 11 — Packaging
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Standalone local launcher (no manual Python install) that starts
 the app and opens the browser to it.
@@ -415,6 +421,36 @@ the app and opens the browser to it.
 app end-to-end: import fixture, view CS, generate proposal, generate
 contract drafts, without installing anything manually beyond the
 installer/launcher itself.
+
+**Confirmed:** Added `app/paths.py` (`resource_path()` for
+templates/docx_templates, `user_data_dir()` for the SQLite DB) so dev mode
+is unchanged (repo root, as always) but a frozen build uses
+`sys._MEIPASS` for bundled resources and `%LOCALAPPDATA%\ProcurementCSTool\`
+for the DB - never tries to write next to a possibly read-only installed
+executable. `run.py` is the packaged entry point (starts uvicorn, opens
+the browser after a short delay via `threading.Timer`) - kept separate
+from `app/main.py` so "how this app is launched" doesn't leak into the
+FastAPI app itself.
+
+Built with `pyinstaller ProcurementCSTool.spec` (or the equivalent
+`pyinstaller run.py --name ProcurementCSTool --onefile --add-data
+"app/templates;app/templates" --add-data
+"app/docx_templates;app/docx_templates"` - the committed `.spec` is the
+reproducible source of truth). Requires `pip install -r
+requirements-dev.txt` first (adds `pyinstaller` on top of the normal
+runtime deps).
+
+Manually verified against the actual built `dist/ProcurementCSTool.exe`
+(not just the dev-mode launcher): ran it standalone, imported `CS.xlsx`
+through the real UI, confirmed `/tenders/1`, `/tenders/1/award`,
+`/tenders/1/proposal`, `/items`, `/suppliers` all return 200 with correct
+data (Purchase Proposal: Awan 11/SNS 10, grand total 420,789 - matches
+the known-good fixture numbers exactly), downloaded a contract draft
+(12-row table, no unrendered tags - proves the bundled docx template
+resolved correctly under `sys._MEIPASS`), and confirmed the DB landed at
+`%LOCALAPPDATA%\ProcurementCSTool\procurement.db`, fully separate from
+the dev repo's `procurement.db`. `pytest tests/` (20, unchanged) still
+passes after the path refactor.
 
 ---
 

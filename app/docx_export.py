@@ -13,14 +13,14 @@ contract wording.
 import datetime
 import html
 from io import BytesIO
-from pathlib import Path
 
 from docxtpl import DocxTemplate
 
 from .award_engine import ProposalFirmGroup
 from .models import Supplier, Tender
+from .paths import resource_path
 
-TEMPLATE_PATH = Path(__file__).resolve().parent / "docx_templates" / "contract_template.docx"
+TEMPLATE_PATH = resource_path("docx_templates", "contract_template.docx")
 
 
 def _esc(value) -> str:

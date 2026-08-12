@@ -14,6 +14,7 @@ from .award_engine import build_purchase_proposal, resolve_awarded_items, valida
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
 from .docx_export import generate_contract_draft
+from .paths import resource_path
 from .excel_io import (
     export_cs_xlsx,
     export_purchase_proposal_xlsx,
@@ -25,8 +26,7 @@ from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
 
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
-TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = Jinja2Templates(directory=str(resource_path("templates")))
 
 
 @app.on_event("startup")

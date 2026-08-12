@@ -1,9 +1,8 @@
-from pathlib import Path
-
 from sqlmodel import Session, SQLModel, create_engine
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "procurement.db"
+from .paths import user_data_dir
+
+DB_PATH = user_data_dir() / "procurement.db"
 
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 
