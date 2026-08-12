@@ -48,6 +48,7 @@ class ComparativeStatement:
     item_results: List[ItemResult]
     firm_summaries: List[FirmSummary]
     grand_total: GrandTotal
+    suppliers_by_id: Dict[int, Supplier]
 
 
 def compute_item_result(item: Item, quotes: List[Quote]) -> ItemResult:
@@ -154,4 +155,5 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
         item_results=item_results,
         firm_summaries=firm_summaries,
         grand_total=grand_total,
+        suppliers_by_id=suppliers_by_id,
     )

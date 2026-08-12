@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ tender.inquiry_no }} - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>{{ tender.inquiry_no }}</h1>
+<p class="muted">GST {{ tender.gst_percent }}% &middot; Status: {{ tender.status.value }}</p>
+
+<div class="card">
+  <h2 style="margin-top:0">Add item</h2>
+  <form method="post" action="/tenders/{{ tender.id }}/items" class="row-form">
+    <div class="field" style="max-width:80px">
+      <label for="ser">Ser</label>
+      <input type="text" id="ser" name="ser" value="{{ next_ser }}" required>
+    </div>
+    <div class="field" style="max-width:140px">
+      <label for="part_no">Part No</label>
+      <input type="text" id="part_no" name="part_no">
+    </div>
+    <div class="field" style="flex:2">
+      <label for="description">Description</label>
+      <input type="text" id="description" name="description" required>
+    </div>
+    <div class="field" style="max-width:90px">
+      <label for="unit">Unit</label>
+      <input type="text" id="unit" name="unit">
+    </div>
+    <div class="field" style="max-width:90px">
+      <label for="qty">Qty</label>
+      <input type="text" id="qty" name="qty" required>
+    </div>
+    <div class="field" style="max-width:110px">
+      <label for="lpr">LPR (optional)</label>
+      <input type="text" id="lpr" name="lpr">
+    </div>
+    <button type="submit">Add item</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Add supplier to this tender</h2>
+  <form method="post" action="/tenders/{{ tender.id }}/suppliers" class="row-form">
+    <div class="field">
+      <label for="supplier_name">Supplier name (existing or new)</label>
+      <input type="text" id="supplier_name" name="name" list="supplier-names" required>
+      <datalist id="supplier-names">
+        {% for n in all_supplier_names %}<option value="{{ n }}">{% endfor %}
+      </datalist>
+    </div>
+    <button type="submit">Add supplier</button>
+  </form>
+</div>
+
+<h2 id="quotes">Items &amp; quotes</h2>
+{% if item_rows %}
+<form method="post" action="/tenders/{{ tender.id }}/quotes">
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th>
+        {% for s in suppliers %}<th>{{ s.name }}</th>{% endfor %}
+        <th>Lowest Firm</th><th class="num">Lowest Rate</th><th class="num">Total Value</th>
+        <th class="num">LPR</th><th class="num">Inc/Dec %</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in item_rows %}
+      {% set item = row.item %}
+      <tr>
+        <td>{{ item.ser }}</td>
+        <td>{{ item.part_no }}</td>
+        <td>{{ item.description }}</td>
+        <td>{{ item.unit }}</td>
+        <td class="num">{{ item.qty }}</td>
+        {% for s in suppliers %}
+          {% set rate = rate_matrix.get((item.id, s.id)) %}
+          <td class="{{ 'lowest-cell' if row.lowest_supplier_id == s.id else '' }}">
+            <input class="rate-input" type="text" name="rate__{{ item.id }}__{{ s.id }}"
+                   value="{{ rate if rate is not none else '' }}" placeholder="NQ">
+          </td>
+        {% endfor %}
+        <td>{{ row.lowest_name or '-' }}</td>
+        <td class="num">{{ '%.2f'|format(row.lowest_rate) if row.lowest_rate is not none else '-' }}</td>
+        <td class="num">{{ '%.2f'|format(row.total_value) }}</td>
+        <td class="num">{{ item.lpr if item.lpr is not none else '-' }}</td>
+        <td class="num">{{ '%.1f'|format(row.inc_dec_pct) if row.inc_dec_pct is not none else '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<button type="submit">Save quotes</button>
+</form>
+{% else %}
+<p class="empty">No items yet. Add one above, or import a Comparative Statement from the home page.</p>
+{% endif %}
+
+<h2 id="cs-view">Comparative statement summary</h2>
+<div class="card">
+  {% if firm_summaries %}
+  <table>
+    <thead><tr><th>Firm</th><th class="num">Items</th><th class="num">Store Value</th><th class="num">GST</th><th class="num">Contract Value</th></tr></thead>
+    <tbody>
+      {% for f in firm_summaries %}
+      <tr>
+        <td>{{ f.supplier_name }}</td>
+        <td class="num">{{ f.item_count }}</td>
+        <td class="num">{{ '%.2f'|format(f.store_value) }}</td>
+        <td class="num">{{ '%.2f'|format(f.gst_amount) }}</td>
+        <td class="num">{{ '%.2f'|format(f.contract_value) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="totals-row">
+        <td>Grand Total</td>
+        <td class="num">{{ grand_total.item_count }}</td>
+        <td class="num">{{ '%.2f'|format(grand_total.store_value) }}</td>
+        <td class="num">{{ '%.2f'|format(grand_total.gst_amount) }}</td>
+        <td class="num">{{ '%.2f'|format(grand_total.contract_value) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No items have been awarded yet - enter quotes above.</p>
+  {% endif %}
+</div>
+{% endblock %}

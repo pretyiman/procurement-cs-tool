@@ -76,7 +76,7 @@ excluded from totals but present in `item_results`.
 ---
 
 ## Phase 3 — Quote-entry UI
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** Browser UI (Jinja2 + HTMX, served by FastAPI) to: create a
 tender, add/import items, manage a reusable supplier list, and enter quotes
@@ -90,7 +90,21 @@ CS (from Phase 2's engine) for the tender.
   including at least one NQ, confirm the CS view matches expected lowest
   firm/rate/totals.
 - Import `CS.xlsx` through the UI (not just the script) and confirm the
-  grid renders all 21 items x 3 suppliers correctly, including NQ cells.
+  grid renders all 23 items x 3 suppliers correctly, including NQ cells.
+
+**Confirmed (manual, via curl against a running server):**
+- Created a tender by hand, added 3 items (one with an LPR) and 2
+  suppliers, saved a quote grid with one NQ per item. Rendered page showed
+  correct lowest-firm highlighting per item, correct totals (item3: LPR
+  100, awarded rate 90 -> Inc/Dec -10.0%), and a firm summary/grand total
+  that hand-recomputation confirmed exactly (Supplier X: 2/1720/172/1892,
+  Supplier Y: 1/250/25/275, grand total 3/1970/197/2167).
+- Imported the real `CS.xlsx` through `POST /tenders/import-ui` (the HTML
+  form path, not the import script) - rendered grid has 69 rate inputs
+  (23 items x 3 suppliers) and the firm summary block matches the known-
+  good numbers exactly (e.g. M/s Awan Tech: 11/211,134.00/38,004.12/
+  249,138.12).
+- `pytest tests/` (7 tests) still passes unchanged.
 
 ---
 

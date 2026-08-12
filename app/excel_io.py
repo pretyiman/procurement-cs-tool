@@ -49,7 +49,7 @@ def _find_inquiry_no(rows, header_idx: int) -> str:
     return "UNSPECIFIED"
 
 
-def _get_or_create_supplier(session: Session, name: str) -> Supplier:
+def get_or_create_supplier(session: Session, name: str) -> Supplier:
     name = name.strip()
     existing = session.exec(select(Supplier).where(Supplier.name == name)).first()
     if existing:
@@ -104,7 +104,7 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
     session.add(tender)
     session.flush()
 
-    suppliers = [_get_or_create_supplier(session, name) for name in supplier_names]
+    suppliers = [get_or_create_supplier(session, name) for name in supplier_names]
 
     data_start = header_idx + 2
     started = False

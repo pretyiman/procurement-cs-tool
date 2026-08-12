@@ -26,9 +26,17 @@ writing code.**
 - **Backend**: Python 3.13, FastAPI, SQLAlchemy/SQLModel over **SQLite**
   (single file DB, no server to install). Chosen so a later "online" version
   is a DB swap + deploy, not a rewrite.
-- **Frontend**: server-rendered (Jinja2 templates + HTMX), not a separate JS
+- **Frontend**: server-rendered (Jinja2 templates), not a separate JS
   build. Keeps the app truly standalone (no node toolchain) and easy for an
   agent to build/modify in small increments.
+  **Deviation (Phase 3):** built with plain HTML forms (full-page
+  POST + 303 redirect back to the tender page) instead of HTMX. HTMX would
+  need a vendored local copy of htmx.min.js to keep the app offline-safe,
+  which wasn't worth it for MVP - plain forms are simpler, equally
+  "no JS build tooling," and every action already round-trips through the
+  server. If per-cell save-without-reload becomes a real usability
+  complaint, add HTMX as progressive enhancement on top of the existing
+  forms (they'll keep working without it) rather than rewriting them.
 - **Excel I/O**: `openpyxl` / `pandas`.
 - **Word generation**: `docxtpl` (Jinja2-style placeholders inside a real
   .docx template), NOT raw `python-docx` composition. This lets non-technical

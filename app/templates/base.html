@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Procurement CS Tool{% endblock %}</title>
+  <style>
+    :root {
+      --border: #d8dce1;
+      --muted: #667085;
+      --accent: #1f5fbf;
+      --lowest-bg: #e6f4ea;
+      --lowest-border: #34a853;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      color: #1c2126;
+      background: #f7f8fa;
+    }
+    header.site {
+      background: #14213d;
+      color: white;
+      padding: 0.9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header.site a { color: white; text-decoration: none; font-weight: 600; }
+    main {
+      max-width: 1100px;
+      margin: 1.5rem auto;
+      padding: 0 1.5rem 3rem;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+    .card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+    th, td { border: 1px solid var(--border); padding: 0.4rem 0.55rem; text-align: left; }
+    th { background: #eef1f5; }
+    tbody tr:nth-child(even) { background: #fafbfc; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .nq { color: var(--muted); font-style: italic; }
+    td.lowest-cell { background: var(--lowest-bg); border-left: 3px solid var(--lowest-border); font-weight: 600; }
+    input[type=text], input[type=number] {
+      width: 100%;
+      padding: 0.3rem 0.4rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    input.rate-input { width: 6.5rem; }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; color: var(--muted); }
+    .field { margin-bottom: 0.75rem; }
+    .row-form { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; }
+    .row-form .field { flex: 1; min-width: 120px; margin-bottom: 0; }
+    button, .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-decoration: none;
+      display: inline-block;
+    }
+    button:hover, .btn:hover { opacity: 0.9; }
+    .btn-secondary { background: #5f6b7a; }
+    .totals-row { font-weight: 700; background: #eef1f5; }
+    .empty { color: var(--muted); font-style: italic; padding: 1rem 0; }
+    .tender-list a { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <a href="/">Procurement CS Tool</a>
+    <nav><a href="/tenders/new" style="opacity:0.85">+ New Tender</a></nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
