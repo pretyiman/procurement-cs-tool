@@ -29,6 +29,14 @@
       <label for="phone">Phone</label>
       <input type="text" id="phone" name="phone">
     </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="text" id="email" name="email">
+    </div>
+    <div class="field" style="flex:2">
+      <label for="address">Address</label>
+      <input type="text" id="address" name="address">
+    </div>
     <button type="submit">Add supplier</button>
   </form>
 </div>
@@ -37,7 +45,7 @@
 <div class="card" style="overflow-x:auto">
   {% if suppliers %}
   <table>
-    <thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th></tr></thead>
+    <thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Address</th></tr></thead>
     <tbody>
       {% for s in suppliers %}
       <tr>
@@ -45,6 +53,7 @@
         <td>{{ s.contact_person or '-' }}</td>
         <td>{{ s.phone or '-' }}</td>
         <td>{{ s.email or '-' }}</td>
+        <td>{{ s.address or '-' }}</td>
       </tr>
       {% endfor %}
     </tbody>
