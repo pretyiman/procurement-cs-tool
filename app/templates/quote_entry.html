@@ -12,16 +12,13 @@
 <div class="card">
   <form method="post" action="/tenders/{{ tender.id }}/quote-entry" class="row-form" id="quote-entry-form">
     <div class="field" style="flex:2">
-      <label for="item_master_id">Item</label>
-      <select id="item_master_id" name="item_master_id" required onchange="onItemChange(this)">
-        <option value="">-- select item --</option>
-        {% for im in catalog_items %}
-        <option value="{{ im.id }}" data-unit="{{ im.default_unit }}"
-                data-qty="{{ qty_by_item_master.get(im.id, '') }}">
-          {{ im.part_no }} - {{ im.description }}
-        </option>
-        {% endfor %}
-      </select>
+      <label for="item-search-input">Item</label>
+      <div class="search-select" id="item-search">
+        <input type="text" id="item-search-input" class="search-select-input" autocomplete="off"
+               placeholder="Type to search items...">
+        <input type="hidden" class="search-select-hidden" name="item_master_id">
+        <div class="search-select-menu"></div>
+      </div>
     </div>
     <div class="field" style="max-width:90px">
       <label for="unit_display">Unit</label>
@@ -32,11 +29,12 @@
       <input type="text" id="qty" name="qty" required oninput="updateTotal()">
     </div>
     <div class="field">
-      <label for="supplier_name">Supplier</label>
-      <input type="text" id="supplier_name" name="supplier_name" list="supplier-names" required>
-      <datalist id="supplier-names">
-        {% for n in all_supplier_names %}<option value="{{ n }}">{% endfor %}
-      </datalist>
+      <label for="supplier-search-input">Supplier</label>
+      <div class="search-select" id="supplier-search">
+        <input type="text" id="supplier-search-input" class="search-select-input" name="supplier_name"
+               autocomplete="off" required placeholder="Type to search or add a new supplier...">
+        <div class="search-select-menu"></div>
+      </div>
     </div>
     <div class="field" style="max-width:110px">
       <label for="rate">Rate</label>
@@ -71,17 +69,28 @@
 </div>
 
 <script>
-function onItemChange(select) {
-  var opt = select.options[select.selectedIndex];
-  document.getElementById('unit_display').value = opt ? (opt.dataset.unit || '') : '';
-  document.getElementById('qty').value = opt ? (opt.dataset.qty || '') : '';
-  updateTotal();
-}
-function updateTotal() {
-  var qty = parseFloat(document.getElementById('qty').value);
-  var rate = parseFloat(document.getElementById('rate').value);
-  var display = document.getElementById('total_display');
-  display.textContent = (!isNaN(qty) && !isNaN(rate)) ? (qty * rate).toFixed(2) : '-';
-}
+  function updateTotal() {
+    var qty = parseFloat(document.getElementById('qty').value);
+    var rate = parseFloat(document.getElementById('rate').value);
+    var display = document.getElementById('total_display');
+    display.textContent = (!isNaN(qty) && !isNaN(rate)) ? (qty * rate).toFixed(2) : '-';
+  }
+
+  initSearchSelect('item-search', {{ catalog_items_json | safe }}, {
+    onSelect: function (item) {
+      document.getElementById('unit_display').value = item.unit || '';
+      document.getElementById('qty').value = item.qty || '';
+      updateTotal();
+    }
+  });
+  initSearchSelect('supplier-search', {{ supplier_names_json | safe }});
+
+  document.getElementById('quote-entry-form').addEventListener('submit', function (e) {
+    var hidden = document.querySelector('#item-search .search-select-hidden');
+    if (!hidden.value) {
+      e.preventDefault();
+      alert('Please pick an item from the search results.');
+    }
+  });
 </script>
 {% endblock %}

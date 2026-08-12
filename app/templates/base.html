@@ -121,6 +121,18 @@
     .price-pill.lowest { border-color: var(--lowest-border); background: var(--lowest-bg); font-weight: 600; }
     .price-pill.awarded { outline: 2px solid var(--accent); }
     .badge { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--lowest-border); color: white; margin-left: 0.35rem; }
+    .search-select { position: relative; }
+    .search-select-menu {
+      position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px;
+      background: white; border: 1px solid var(--border); border-radius: 6px;
+      max-height: 220px; overflow-y: auto; z-index: 20;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      display: none;
+    }
+    .search-select-menu.open { display: block; }
+    .search-select-option { padding: 0.4rem 0.6rem; cursor: pointer; font-size: 0.88rem; }
+    .search-select-option:hover, .search-select-option.active { background: #eef1f5; }
+    .search-select-empty { padding: 0.4rem 0.6rem; color: var(--muted); font-size: 0.85rem; font-style: italic; }
     @media (max-width: 780px) {
       .app-shell { flex-direction: column; }
       aside.sidebar { width: 100%; height: auto; position: static; }
@@ -144,5 +156,94 @@
       </main>
     </div>
   </div>
+  <script>
+    // Reusable type-ahead combobox. `items` is [{id, label, ...extra}].
+    // Catalog mode (opts.strict=true, default): a hidden input (class
+    // search-select-hidden) only gets a value when an option is actually
+    // selected - the caller must reject empty submissions server-side.
+    // Free-text mode (opts.strict=false): no hidden input needed, the
+    // visible input carries its own `name` and submits whatever was
+    // typed, matched or not (used for suppliers - typing a new name is
+    // valid, it creates a new supplier).
+    function initSearchSelect(rootId, items, opts) {
+      opts = opts || {};
+      var root = document.getElementById(rootId);
+      var input = root.querySelector('.search-select-input');
+      var hidden = root.querySelector('.search-select-hidden');
+      var menu = root.querySelector('.search-select-menu');
+      var activeIndex = -1;
+      var currentMatches = [];
+
+      function render(matches) {
+        currentMatches = matches;
+        activeIndex = -1;
+        menu.innerHTML = '';
+        if (matches.length === 0) {
+          var empty = document.createElement('div');
+          empty.className = 'search-select-empty';
+          empty.textContent = 'No matches';
+          menu.appendChild(empty);
+        } else {
+          matches.slice(0, 25).forEach(function (item) {
+            var opt = document.createElement('div');
+            opt.className = 'search-select-option';
+            opt.textContent = item.label;
+            opt.addEventListener('mousedown', function (e) {
+              e.preventDefault();
+              select(item);
+            });
+            menu.appendChild(opt);
+          });
+        }
+        menu.classList.add('open');
+      }
+
+      function select(item) {
+        input.value = item.label;
+        if (hidden) hidden.value = item.id;
+        menu.classList.remove('open');
+        if (opts.onSelect) opts.onSelect(item);
+      }
+
+      function updateActive(options) {
+        options.forEach(function (o, i) { o.classList.toggle('active', i === activeIndex); });
+      }
+
+      function filter() {
+        var q = input.value.trim().toLowerCase();
+        if (hidden) hidden.value = '';
+        if (!q) { menu.classList.remove('open'); return; }
+        var matches = items.filter(function (it) {
+          return it.label.toLowerCase().indexOf(q) !== -1;
+        });
+        render(matches);
+      }
+
+      input.addEventListener('input', filter);
+      input.addEventListener('focus', function () { if (input.value.trim()) filter(); });
+      input.addEventListener('keydown', function (e) {
+        var options = menu.querySelectorAll('.search-select-option');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          activeIndex = Math.min(activeIndex + 1, options.length - 1);
+          updateActive(options);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, 0);
+          updateActive(options);
+        } else if (e.key === 'Enter') {
+          if (menu.classList.contains('open') && activeIndex >= 0 && currentMatches[activeIndex]) {
+            e.preventDefault();
+            select(currentMatches[activeIndex]);
+          }
+        } else if (e.key === 'Escape') {
+          menu.classList.remove('open');
+        }
+      });
+      document.addEventListener('click', function (e) {
+        if (!root.contains(e.target)) menu.classList.remove('open');
+      });
+    }
+  </script>
 </body>
 </html>

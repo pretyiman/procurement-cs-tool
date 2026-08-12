@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 import zipfile
@@ -32,6 +33,13 @@ templates = Jinja2Templates(directory=str(resource_path("templates")))
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
+
+
+def _json_for_script(data) -> str:
+    """json.dumps, safe to embed inside a <script> tag (escapes a literal
+    "</" so an item description etc. can never accidentally close the
+    surrounding script element)."""
+    return json.dumps(data).replace("</", "<\\/")
 
 
 @app.get("/health")
@@ -287,6 +295,10 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
 
     catalog_items = session.exec(select(ItemMaster)).all()
     catalog_items.sort(key=lambda im: (im.part_no, im.description))
+    catalog_items_json = _json_for_script(
+        [{"id": im.id, "label": f"{im.part_no} - {im.description} ({im.default_unit})"} for im in catalog_items]
+    )
+    supplier_names_json = _json_for_script([{"id": n, "label": n} for n in all_supplier_names])
 
     return templates.TemplateResponse(
         request,
@@ -299,7 +311,8 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             "item_rows": item_rows,
             "firm_summaries": cs.firm_summaries,
             "grand_total": cs.grand_total,
-            "catalog_items": catalog_items,
+            "catalog_items_json": catalog_items_json,
+            "supplier_names_json": supplier_names_json,
         },
     )
 
@@ -498,14 +511,26 @@ def quote_entry_form(tender_id: int, request: Request, session: Session = Depend
         )
     recorded.sort(key=lambda r: (r["ser"], r["supplier_name"]))
 
+    catalog_items_json = _json_for_script(
+        [
+            {
+                "id": im.id,
+                "label": f"{im.part_no} - {im.description}",
+                "unit": im.default_unit,
+                "qty": qty_by_item_master.get(im.id, ""),
+            }
+            for im in catalog_items
+        ]
+    )
+    supplier_names_json = _json_for_script([{"id": n, "label": n} for n in all_supplier_names])
+
     return templates.TemplateResponse(
         request,
         "quote_entry.html",
         {
             "tender": tender,
-            "catalog_items": catalog_items,
-            "qty_by_item_master": qty_by_item_master,
-            "all_supplier_names": all_supplier_names,
+            "catalog_items_json": catalog_items_json,
+            "supplier_names_json": supplier_names_json,
             "recorded": recorded,
         },
     )
