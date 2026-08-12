@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
 
 from .models import Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
@@ -192,6 +193,7 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws = wb.active
     ws.title = "Comparative Statement"
     bold = Font(bold=True)
+    header_align = Alignment(wrap_text=True, horizontal="center", vertical="center")
 
     suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
     n = len(suppliers)
@@ -205,11 +207,10 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
 
     header_row = 3
-    ws.cell(row=header_row, column=1, value="Ser").font = bold
-    ws.cell(row=header_row, column=2, value="Part No").font = bold
-    ws.cell(row=header_row, column=3, value="Description").font = bold
-    ws.cell(row=header_row, column=4, value="A/U").font = bold
-    ws.cell(row=header_row, column=5, value="Qty").font = bold
+    for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "A/U"), (5, "Qty")]:
+        cell = ws.cell(row=header_row, column=col, value=label)
+        cell.font = bold
+        cell.alignment = header_align
     ws.cell(
         row=header_row,
         column=rate_start_col,
@@ -218,16 +219,22 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(row=header_row, column=lowest_col, value="Lowest").font = bold
     ws.cell(row=header_row, column=lpr_col, value="LPR (Rs)").font = bold
     ws.cell(row=header_row, column=incdec_col, value="Inc/Dec %").font = bold
+    for col in (rate_start_col, lowest_col, lpr_col, incdec_col):
+        ws.cell(row=header_row, column=col).alignment = header_align
     if n > 1:
         ws.merge_cells(start_row=header_row, start_column=rate_start_col, end_row=header_row, end_column=lowest_col - 1)
     ws.merge_cells(start_row=header_row, start_column=lowest_col, end_row=header_row, end_column=lowest_col + 2)
 
     subheader_row = header_row + 1
     for i, supplier in enumerate(suppliers):
-        ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+        cell = ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+        cell.font = bold
+        cell.alignment = header_align
     ws.cell(row=subheader_row, column=lowest_col, value="Firm").font = bold
     ws.cell(row=subheader_row, column=lowest_col + 1, value="Rate Rs.").font = bold
     ws.cell(row=subheader_row, column=lowest_col + 2, value="Total Value").font = bold
+    for col in (lowest_col, lowest_col + 1, lowest_col + 2):
+        ws.cell(row=subheader_row, column=col).alignment = header_align
 
     # cs.item_results doesn't carry raw per-supplier rates, so pull them from
     # item.quotes (lazy-loaded via the still-open session) as we go.
@@ -288,6 +295,19 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.column_dimensions["C"].width = 36
     ws.column_dimensions["D"].width = 10
     ws.column_dimensions["E"].width = 8
+    # Dynamic columns (supplier rate columns, Lowest Firm/Rate/Total,
+    # LPR, Inc/Dec%) previously had no explicit width at all, so long
+    # supplier names and header labels overflowed/clipped against Excel's
+    # narrow default column width - this is what looked like "overlapping"
+    # or broken merges. wrap_text on the header cells (set above) lets
+    # Excel grow the row height instead of needing very wide columns.
+    for col in range(rate_start_col, lowest_col):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+    ws.column_dimensions[get_column_letter(lowest_col)].width = 18
+    ws.column_dimensions[get_column_letter(lowest_col + 1)].width = 11
+    ws.column_dimensions[get_column_letter(lowest_col + 2)].width = 13
+    ws.column_dimensions[get_column_letter(lpr_col)].width = 11
+    ws.column_dimensions[get_column_letter(incdec_col)].width = 10
 
     buffer = BytesIO()
     wb.save(buffer)
