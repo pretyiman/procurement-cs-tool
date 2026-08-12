@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+node_modules/
+.env
+dist/
+build/
+*.spec
+generated/
