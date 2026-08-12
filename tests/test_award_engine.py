@@ -43,12 +43,12 @@ def test_proposal_matches_cs_summary_when_no_overrides():
             group = proposal_by_name[name]
             assert len(group.items) == cs_summary.item_count
             assert group.store_value == pytest.approx(cs_summary.store_value)
-            assert group.gst_amount == pytest.approx(cs_summary.gst_amount)
+            assert group.tax_amount == pytest.approx(cs_summary.tax_amount)
             assert group.contract_value == pytest.approx(cs_summary.contract_value)
 
         assert proposal.grand_total.item_count == cs.grand_total.item_count
         assert proposal.grand_total.store_value == pytest.approx(cs.grand_total.store_value)
-        assert proposal.grand_total.gst_amount == pytest.approx(cs.grand_total.gst_amount)
+        assert proposal.grand_total.tax_amount == pytest.approx(cs.grand_total.tax_amount)
         assert proposal.grand_total.contract_value == pytest.approx(cs.grand_total.contract_value)
 
 

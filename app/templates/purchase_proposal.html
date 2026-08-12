@@ -52,8 +52,8 @@
       </tr>
       {% endfor %}
       <tr class="totals-row">
-        <td colspan="6">Store Value / GST / Contract Value</td>
-        <td class="num">{{ '%.2f'|format(group.store_value) }} / {{ '%.2f'|format(group.gst_amount) }} / {{ '%.2f'|format(group.contract_value) }}</td>
+        <td colspan="6">Store Value / {{ tender.tax_type.value }} / Contract Value</td>
+        <td class="num">{{ '%.2f'|format(group.store_value) }} / {{ '%.2f'|format(group.tax_amount) }} / {{ '%.2f'|format(group.contract_value) }}</td>
       </tr>
     </tbody>
   </table>
@@ -88,7 +88,7 @@
         <td>Items</td><td class="num">{{ proposal.grand_total.item_count }}</td>
       </tr>
       <tr><td>Store Value</td><td class="num">{{ '%.2f'|format(proposal.grand_total.store_value) }}</td></tr>
-      <tr><td>GST</td><td class="num">{{ '%.2f'|format(proposal.grand_total.gst_amount) }}</td></tr>
+      <tr><td>{{ tender.tax_type.value }}</td><td class="num">{{ '%.2f'|format(proposal.grand_total.tax_amount) }}</td></tr>
       <tr class="totals-row"><td>Contract Value</td><td class="num">{{ '%.2f'|format(proposal.grand_total.contract_value) }}</td></tr>
     </tbody>
   </table>

@@ -2,7 +2,7 @@
 {% block title %}{{ tender.inquiry_no }} - Procurement CS Tool{% endblock %}
 {% block content %}
 <h1>{{ tender.inquiry_no }}</h1>
-<p class="muted">GST {{ tender.gst_percent }}% &middot; Status: {{ tender.status.value }}</p>
+<p class="muted">{{ tender.tax_type.value }} {{ tender.tax_percent }}% &middot; Status: {{ tender.status.value }}</p>
 <p>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/award">Award Review</a>
@@ -98,14 +98,14 @@
 <div class="card">
   {% if firm_summaries %}
   <table>
-    <thead><tr><th>Firm</th><th class="num">Items</th><th class="num">Store Value</th><th class="num">GST</th><th class="num">Contract Value</th></tr></thead>
+    <thead><tr><th>Firm</th><th class="num">Items</th><th class="num">Store Value</th><th class="num">{{ tender.tax_type.value }}</th><th class="num">Contract Value</th></tr></thead>
     <tbody>
       {% for f in firm_summaries %}
       <tr>
         <td>{{ f.supplier_name }}</td>
         <td class="num">{{ f.item_count }}</td>
         <td class="num">{{ '%.2f'|format(f.store_value) }}</td>
-        <td class="num">{{ '%.2f'|format(f.gst_amount) }}</td>
+        <td class="num">{{ '%.2f'|format(f.tax_amount) }}</td>
         <td class="num">{{ '%.2f'|format(f.contract_value) }}</td>
       </tr>
       {% endfor %}
@@ -113,7 +113,7 @@
         <td>Grand Total</td>
         <td class="num">{{ grand_total.item_count }}</td>
         <td class="num">{{ '%.2f'|format(grand_total.store_value) }}</td>
-        <td class="num">{{ '%.2f'|format(grand_total.gst_amount) }}</td>
+        <td class="num">{{ '%.2f'|format(grand_total.tax_amount) }}</td>
         <td class="num">{{ '%.2f'|format(grand_total.contract_value) }}</td>
       </tr>
     </tbody>

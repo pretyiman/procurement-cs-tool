@@ -11,3 +11,5 @@ build/
 *.spec
 !ProcurementCSTool.spec
 generated/
+CA.doc
+PP.doc

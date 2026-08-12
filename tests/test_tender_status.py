@@ -27,7 +27,7 @@ def _make_client():
 
 def _tender_with_one_awarded_item(client, engine) -> int:
     resp = client.post(
-        "/tenders", data={"inquiry_no": "Status Test", "gst_percent": "10"}, follow_redirects=False
+        "/tenders", data={"inquiry_no": "Status Test", "tax_percent": "10"}, follow_redirects=False
     )
     tender_id = int(resp.headers["location"].rsplit("/", 1)[-1])
 

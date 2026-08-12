@@ -10,9 +10,10 @@ changes; code and `PLAN.md` verification steps should match it.
 |---|---|---|
 | id | int, PK | |
 | inquiry_no | text | e.g. "Tender Inquiry No. xxxxx" |
-| date | date | |
-| gst_percent | decimal | e.g. 18.0 |
+| tax_type | enum | `GST` or `PST` - user-selected per tender |
+| tax_percent | decimal | e.g. 18.0; applies to whichever tax_type is selected |
 | status | enum | `draft` -> `proposal_generated` -> `awarded` |
+| awarded_date | date, nullable | set when status -> `awarded`; feeds LPR history (see below) |
 
 ### ItemMaster (catalog — reusable across tenders)
 | field | type | notes |
@@ -58,6 +59,21 @@ alone can't be the dedup key - see `get_or_create_item_master` in
 | supplier_id | FK | |
 | rate | decimal, nullable | null/absent = "NQ" (not quoted) |
 
+### TenderTemplate / TenderTemplateItem (saved item lists, for recurring tenders)
+| field | type | notes |
+|---|---|---|
+| TenderTemplate.id | int, PK | |
+| TenderTemplate.name | text, unique | |
+| TenderTemplateItem.id | int, PK | |
+| TenderTemplateItem.template_id | FK -> TenderTemplate | |
+| TenderTemplateItem.item_master_id | FK -> ItemMaster | |
+| TenderTemplateItem.ser | int | |
+| TenderTemplateItem.qty | decimal | |
+
+Deliberately holds no suppliers/quotes/tax fields - only the item list, so
+starting a new tender "from template" copies item lines (with qty) but
+always requires fresh quotes and a fresh GST/PST choice.
+
 ## Derived (never stored, always computed)
 
 - **Lowest rate / lowest firm per item** = min(rate) across quotes where
@@ -67,9 +83,17 @@ alone can't be the dedup key - see `get_or_create_item_master` in
 - **Inc/Dec %** = (awarded_rate - lpr) / lpr * 100, only if lpr present.
 - **Per-firm summary** (for CS bottom block and for Purchase Proposal
   grouping): for each supplier with >=1 awarded item — items count, store
-  value (sum of item totals), GST amount, contract value (store value +
-  GST).
+  value (sum of item totals), tax amount (store value * tender.tax_percent
+  / 100, labeled GST or PST per tender.tax_type), contract value (store
+  value + tax amount).
 - **Grand total**: sum across all firms.
+- **Last Purchase Rate (LPR) history**: when a new tender line is created
+  for a catalog item (ItemMaster), if no LPR is explicitly given, it's
+  auto-filled from the awarded rate of that same item_master_id in the
+  most recently **awarded** tender (by `Tender.awarded_date`), if any such
+  tender exists. This is what makes Inc/Dec% meaningful without manual
+  LPR entry every time - see `get_last_purchase_rate` in
+  `app/lpr_history.py`.
 
 ## Regression fixture: CS.xlsx (dummy data, repo root)
 

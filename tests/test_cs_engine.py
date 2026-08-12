@@ -37,13 +37,13 @@ def test_firm_summaries_match_known_good_numbers():
         sns = summaries_by_name["M/s SNS Enterprises"]
         assert sns.item_count == 10
         assert sns.store_value == pytest.approx(209655)
-        assert sns.gst_amount == pytest.approx(37737.90, abs=0.01)
+        assert sns.tax_amount == pytest.approx(37737.90, abs=0.01)
         assert sns.contract_value == pytest.approx(247392.90, abs=0.01)
 
         awan = summaries_by_name["M/s Awan Tech"]
         assert awan.item_count == 11
         assert awan.store_value == pytest.approx(211134)
-        assert awan.gst_amount == pytest.approx(38004.12, abs=0.01)
+        assert awan.tax_amount == pytest.approx(38004.12, abs=0.01)
         assert awan.contract_value == pytest.approx(249138.12, abs=0.01)
 
 
@@ -53,7 +53,7 @@ def test_grand_total_matches_known_good_numbers():
 
         assert cs.grand_total.item_count == 21
         assert cs.grand_total.store_value == pytest.approx(420789)
-        assert cs.grand_total.gst_amount == pytest.approx(75742.02, abs=0.01)
+        assert cs.grand_total.tax_amount == pytest.approx(75742.02, abs=0.01)
         assert cs.grand_total.contract_value == pytest.approx(496531.02, abs=0.01)
 
 

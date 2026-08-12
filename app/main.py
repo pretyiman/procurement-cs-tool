@@ -22,7 +22,7 @@ from .excel_io import (
     get_or_create_supplier,
     import_tender,
 )
-from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
+from .models import Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
 
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
@@ -195,15 +195,25 @@ def new_tender_form(request: Request):
 @app.post("/tenders")
 def create_tender(
     inquiry_no: str = Form(...),
-    gst_percent: str = Form("18"),
+    tax_type: str = Form("GST"),
+    tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
 ):
     try:
-        gst = float(gst_percent)
+        tax_pct = float(tax_percent)
     except ValueError:
-        raise HTTPException(400, "GST % must be a number")
+        raise HTTPException(400, "Tax % must be a number")
+    try:
+        tax_type_val = TaxType(tax_type)
+    except ValueError:
+        raise HTTPException(400, "Tax type must be GST or PST")
 
-    tender = Tender(inquiry_no=inquiry_no.strip(), gst_percent=gst, status=TenderStatus.draft)
+    tender = Tender(
+        inquiry_no=inquiry_no.strip(),
+        tax_type=tax_type_val,
+        tax_percent=tax_pct,
+        status=TenderStatus.draft,
+    )
     session.add(tender)
     session.commit()
     session.refresh(tender)

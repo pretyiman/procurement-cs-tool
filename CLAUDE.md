@@ -146,3 +146,14 @@ actual bug.
 the calculation engine. Real supplier/pricing data must never be committed
 to this repo as-is — once real data is used, add the real data files/folder
 to `.gitignore`.
+
+`CA.doc` and `PP.doc` at the repo root (gitignored, local-only) are
+user-supplied sample Contract Award / Purchase Proposal Word documents
+used as the reference for Phase 12's `ca_template.docx`/`pp_template.docx`.
+Their dollar figures are dummy (they match the `CS.xlsx` fixture), but the
+surrounding legal/procedural text names real department roles and
+process details, so - unlike `CS.xlsx` - they're kept out of git rather
+than committed. If you need to re-derive the templates from them again in
+a later session, they should still be sitting at the repo root; if they're
+missing, ask the user for them rather than reconstructing content from
+memory of this file.

@@ -1,3 +1,4 @@
+import datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -11,11 +12,18 @@ class TenderStatus(str, Enum):
     awarded = "awarded"
 
 
+class TaxType(str, Enum):
+    GST = "GST"
+    PST = "PST"
+
+
 class Tender(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     inquiry_no: str
-    gst_percent: float = 18.0
+    tax_type: TaxType = TaxType.GST
+    tax_percent: float = 18.0
     status: TenderStatus = TenderStatus.draft
+    awarded_date: Optional[datetime.date] = None  # set when marked awarded; feeds LPR history
 
     items: List["Item"] = Relationship(back_populates="tender")
 
@@ -70,3 +78,30 @@ class Quote(SQLModel, table=True):
     rate: Optional[float] = None  # None = NQ (not quoted)
 
     item: Optional[Item] = Relationship(back_populates="quotes")
+
+
+class TenderTemplate(SQLModel, table=True):
+    """A saved item list (part numbers + quantities) for a recurring
+    tender, so a new tender can be pre-populated instead of re-adding the
+    same items every time. Deliberately holds no suppliers/quotes - those
+    are always entered fresh per tender."""
+
+    __tablename__ = "tender_template"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+
+    lines: List["TenderTemplateItem"] = Relationship(back_populates="template")
+
+
+class TenderTemplateItem(SQLModel, table=True):
+    __tablename__ = "tender_template_item"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    template_id: int = Field(foreign_key="tender_template.id")
+    item_master_id: int = Field(foreign_key="item_master.id")
+    ser: int
+    qty: float
+
+    template: Optional[TenderTemplate] = Relationship(back_populates="lines")
+    item_master: Optional[ItemMaster] = Relationship()

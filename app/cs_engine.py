@@ -30,7 +30,7 @@ class FirmSummary:
     supplier_name: str
     item_count: int
     store_value: float
-    gst_amount: float
+    tax_amount: float
     contract_value: float
 
 
@@ -38,7 +38,7 @@ class FirmSummary:
 class GrandTotal:
     item_count: int
     store_value: float
-    gst_amount: float
+    tax_amount: float
     contract_value: float
 
 
@@ -78,7 +78,7 @@ def compute_item_result(item: Item, quotes: List[Quote]) -> ItemResult:
 def compute_firm_summaries(
     item_results: List[ItemResult],
     suppliers_by_id: Dict[int, Supplier],
-    gst_percent: float,
+    tax_percent: float,
 ) -> List[FirmSummary]:
     store_value_by_supplier: Dict[int, float] = {}
     item_count_by_supplier: Dict[int, int] = {}
@@ -92,15 +92,15 @@ def compute_firm_summaries(
 
     summaries = []
     for sid, store_value in store_value_by_supplier.items():
-        gst_amount = store_value * gst_percent / 100
+        tax_amount = store_value * tax_percent / 100
         summaries.append(
             FirmSummary(
                 supplier_id=sid,
                 supplier_name=suppliers_by_id[sid].name,
                 item_count=item_count_by_supplier[sid],
                 store_value=store_value,
-                gst_amount=gst_amount,
-                contract_value=store_value + gst_amount,
+                tax_amount=tax_amount,
+                contract_value=store_value + tax_amount,
             )
         )
 
@@ -112,7 +112,7 @@ def compute_grand_total(firm_summaries: List[FirmSummary]) -> GrandTotal:
     return GrandTotal(
         item_count=sum(s.item_count for s in firm_summaries),
         store_value=sum(s.store_value for s in firm_summaries),
-        gst_amount=sum(s.gst_amount for s in firm_summaries),
+        tax_amount=sum(s.tax_amount for s in firm_summaries),
         contract_value=sum(s.contract_value for s in firm_summaries),
     )
 
@@ -147,7 +147,7 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
     }
 
     item_results = [compute_item_result(item, quotes_by_item.get(item.id, [])) for item in items]
-    firm_summaries = compute_firm_summaries(item_results, suppliers_by_id, tender.gst_percent)
+    firm_summaries = compute_firm_summaries(item_results, suppliers_by_id, tender.tax_percent)
     grand_total = compute_grand_total(firm_summaries)
 
     return ComparativeStatement(

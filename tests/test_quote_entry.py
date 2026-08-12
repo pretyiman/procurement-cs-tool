@@ -28,7 +28,7 @@ def _make_client():
 def _create_tender(client) -> int:
     resp = client.post(
         "/tenders",
-        data={"inquiry_no": "Quote Entry Test", "gst_percent": "10"},
+        data={"inquiry_no": "Quote Entry Test", "tax_percent": "10"},
         follow_redirects=False,
     )
     assert resp.status_code == 303

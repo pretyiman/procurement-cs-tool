@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.cs_engine import build_comparative_statement
 from app.excel_io import export_cs_xlsx, import_tender
-from app.models import Item, ItemMaster, Quote, Supplier
+from app.models import Item, ItemMaster, Quote, Supplier, TaxType
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
 
@@ -25,7 +25,7 @@ def test_import_creates_one_tender_23_items_3_suppliers():
         tender = import_tender(CS_XLSX_PATH, session)
 
         assert tender.id is not None
-        assert tender.gst_percent == 18.0
+        assert tender.tax_percent == 18.0
 
         items = session.exec(select(Item).where(Item.tender_id == tender.id)).all()
         assert len(items) == 23  # includes Ser 1 & 21, NQ by every firm
@@ -135,3 +135,27 @@ def test_exported_cs_round_trips_through_the_apps_own_importer():
         for ser in (1, 21):
             result = next(r for r in reimported_cs.item_results if r.item.ser == ser)
             assert result.lowest_supplier_id is None
+
+
+def test_pst_tender_computes_and_round_trips_correctly():
+    """A PST tender's tax amount must compute the same way GST's does, and
+    exporting/re-importing must preserve the PST tax type - not silently
+    fall back to GST."""
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        tender.tax_type = TaxType.PST
+        tender.tax_percent = 15.0
+        session.add(tender)
+        session.commit()
+
+        cs = build_comparative_statement(session, tender.id)
+        sns = next(s for s in cs.firm_summaries if s.supplier_name == "M/s SNS Enterprises")
+        assert sns.tax_amount == pytest.approx(209655 * 0.15)
+        assert sns.contract_value == pytest.approx(209655 * 1.15)
+
+        exported_bytes = export_cs_xlsx(cs)
+
+    with _fresh_session() as reimport_session:
+        reimported_tender = import_tender(BytesIO(exported_bytes), reimport_session)
+        assert reimported_tender.tax_type == TaxType.PST
+        assert reimported_tender.tax_percent == pytest.approx(15.0)

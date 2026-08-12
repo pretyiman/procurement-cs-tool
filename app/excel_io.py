@@ -19,13 +19,13 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from sqlmodel import Session, select
 
-from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
+from .models import Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
     from .cs_engine import ComparativeStatement
 
-_GST_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*GST", re.IGNORECASE)
+_TAX_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(GST|PST)", re.IGNORECASE)
 _NQ_VALUES = {"NQ", "-", ""}
 
 
@@ -37,14 +37,17 @@ def _is_nq(value) -> bool:
     return False
 
 
-def _parse_gst_percent(rows) -> float:
+def _parse_tax(rows) -> tuple:
+    """Existing CS.xlsx-shaped files only ever label tax as "X% GST" - PST
+    detection is here so a file this app exported for a PST tender can be
+    re-imported correctly too (see export_cs_xlsx)."""
     for row in rows:
         for cell in row:
             if isinstance(cell, str):
-                match = _GST_PATTERN.search(cell)
+                match = _TAX_PATTERN.search(cell)
                 if match:
-                    return float(match.group(1))
-    return 18.0
+                    return float(match.group(1)), TaxType(match.group(2).upper())
+    return 18.0, TaxType.GST
 
 
 def _find_inquiry_no(rows, header_idx: int) -> str:
@@ -130,9 +133,11 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
         raise ValueError("Expected a supplier name in the row below the header, under each rate column")
 
     inquiry_no = _find_inquiry_no(rows, header_idx)
-    gst_percent = _parse_gst_percent(rows)
+    tax_percent, tax_type = _parse_tax(rows)
 
-    tender = Tender(inquiry_no=inquiry_no, gst_percent=gst_percent, status=TenderStatus.draft)
+    tender = Tender(
+        inquiry_no=inquiry_no, tax_type=tax_type, tax_percent=tax_percent, status=TenderStatus.draft
+    )
     session.add(tender)
     session.flush()
 
@@ -208,7 +213,7 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(
         row=header_row,
         column=rate_start_col,
-        value=f"Rate Quoted by Firms Excl {cs.tender.gst_percent:g}% GST",
+        value=f"Rate Quoted by Firms Excl {cs.tender.tax_percent:g}% {cs.tender.tax_type.value}",
     ).font = bold
     ws.cell(row=header_row, column=lowest_col, value="Lowest").font = bold
     ws.cell(row=header_row, column=lpr_col, value="LPR (Rs)").font = bold
@@ -245,14 +250,15 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
         ws.cell(row=row, column=incdec_col, value=f"{r.inc_dec_pct:.2f}" if r.inc_dec_pct is not None else "-")
         row += 1
 
+    tax_label = cs.tender.tax_type.value
     row += 1
-    ws.cell(row=row, column=1, value=f"Total Amount Excl {cs.tender.gst_percent:g}% GST (Rs)").font = bold
+    ws.cell(row=row, column=1, value=f"Total Amount Excl {cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
     ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.store_value)
     row += 1
-    ws.cell(row=row, column=1, value=f"{cs.tender.gst_percent:g}% GST (Rs)").font = bold
-    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.gst_amount)
+    ws.cell(row=row, column=1, value=f"{cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
+    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.tax_amount)
     row += 1
-    ws.cell(row=row, column=1, value=f"Total Amount Incl {cs.tender.gst_percent:g}% GST (Rs)").font = bold
+    ws.cell(row=row, column=1, value=f"Total Amount Incl {cs.tender.tax_percent:g}% {tax_label} (Rs)").font = bold
     ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.contract_value)
 
     row += 2
@@ -261,20 +267,20 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(row=row, column=4, value="Firm").font = bold
     ws.cell(row=row, column=6, value="Items").font = bold
     ws.cell(row=row, column=7, value="Store Value").font = bold
-    ws.cell(row=row, column=8, value="GST").font = bold
+    ws.cell(row=row, column=8, value=tax_label).font = bold
     ws.cell(row=row, column=9, value="Contr Value").font = bold
     row += 1
     for f in cs.firm_summaries:
         ws.cell(row=row, column=4, value=f.supplier_name)
         ws.cell(row=row, column=6, value=f.item_count)
         ws.cell(row=row, column=7, value=f.store_value)
-        ws.cell(row=row, column=8, value=f.gst_amount)
+        ws.cell(row=row, column=8, value=f.tax_amount)
         ws.cell(row=row, column=9, value=f.contract_value)
         row += 1
     ws.cell(row=row, column=4, value="G.Total").font = bold
     ws.cell(row=row, column=6, value=cs.grand_total.item_count).font = bold
     ws.cell(row=row, column=7, value=cs.grand_total.store_value).font = bold
-    ws.cell(row=row, column=8, value=cs.grand_total.gst_amount).font = bold
+    ws.cell(row=row, column=8, value=cs.grand_total.tax_amount).font = bold
     ws.cell(row=row, column=9, value=cs.grand_total.contract_value).font = bold
 
     ws.column_dimensions["A"].width = 6
@@ -298,6 +304,7 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
 
     bold = Font(bold=True)
     item_headers = ["Ser", "Part No", "Description", "Unit", "Qty", "Rate", "Total Value"]
+    tax_label = proposal.tender.tax_type.value
 
     row = 1
     ws.cell(row=row, column=1, value=f"PURCHASE PROPOSAL - {proposal.tender.inquiry_no}").font = Font(
@@ -327,8 +334,8 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
         ws.cell(row=row, column=6, value="Store Value").font = bold
         ws.cell(row=row, column=7, value=group.store_value)
         row += 1
-        ws.cell(row=row, column=6, value="GST").font = bold
-        ws.cell(row=row, column=7, value=group.gst_amount)
+        ws.cell(row=row, column=6, value=tax_label).font = bold
+        ws.cell(row=row, column=7, value=group.tax_amount)
         row += 1
         ws.cell(row=row, column=6, value="Contract Value").font = bold
         ws.cell(row=row, column=7, value=group.contract_value)
@@ -354,8 +361,8 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
     ws.cell(row=row, column=6, value="Store Value").font = bold
     ws.cell(row=row, column=7, value=proposal.grand_total.store_value)
     row += 1
-    ws.cell(row=row, column=6, value="GST").font = bold
-    ws.cell(row=row, column=7, value=proposal.grand_total.gst_amount)
+    ws.cell(row=row, column=6, value=tax_label).font = bold
+    ws.cell(row=row, column=7, value=proposal.grand_total.tax_amount)
     row += 1
     ws.cell(row=row, column=6, value="Contract Value").font = bold
     ws.cell(row=row, column=7, value=proposal.grand_total.contract_value)

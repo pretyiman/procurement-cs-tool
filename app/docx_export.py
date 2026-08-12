@@ -44,7 +44,8 @@ def _context(tender: Tender, group: ProposalFirmGroup, supplier: Supplier) -> di
         "firm_phone": _esc(supplier.phone),
         "firm_email": _esc(supplier.email),
         "firm_tax_no": _esc(supplier.tax_no),
-        "gst_percent": tender.gst_percent,
+        "tax_type": tender.tax_type.value,
+        "tax_percent": tender.tax_percent,
         "items": [
             {
                 "ser": ai.item.ser,
@@ -58,7 +59,7 @@ def _context(tender: Tender, group: ProposalFirmGroup, supplier: Supplier) -> di
             for ai in group.items
         ],
         "store_value": f"{group.store_value:.2f}",
-        "gst_amount": f"{group.gst_amount:.2f}",
+        "tax_amount": f"{group.tax_amount:.2f}",
         "contract_value": f"{group.contract_value:.2f}",
     }
 

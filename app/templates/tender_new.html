@@ -9,8 +9,19 @@
       <input type="text" id="inquiry_no" name="inquiry_no" required autofocus>
     </div>
     <div class="field">
-      <label for="gst_percent">GST %</label>
-      <input type="text" id="gst_percent" name="gst_percent" value="18">
+      <label>Tax</label>
+      <div class="row-form" style="gap:1.5rem">
+        <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
+          <input type="radio" name="tax_type" value="GST" checked style="width:auto"> GST
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
+          <input type="radio" name="tax_type" value="PST" style="width:auto"> PST
+        </label>
+      </div>
+    </div>
+    <div class="field">
+      <label for="tax_percent">Tax %</label>
+      <input type="text" id="tax_percent" name="tax_percent" value="18">
     </div>
     <button type="submit">Create tender</button>
     <a href="/" class="btn btn-secondary" style="margin-left:0.5rem">Cancel</a>

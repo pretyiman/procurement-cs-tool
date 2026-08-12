@@ -34,7 +34,7 @@ class ProposalFirmGroup:
     supplier_name: str
     items: List[AwardedItem]
     store_value: float
-    gst_amount: float
+    tax_amount: float
     contract_value: float
 
 
@@ -140,15 +140,15 @@ def build_purchase_proposal(session: Session, tender_id: int) -> PurchaseProposa
     for supplier_id, items in grouped.items():
         items = sorted(items, key=lambda ai: ai.item.ser)
         store_value = sum(ai.total_value for ai in items)
-        gst_amount = store_value * cs.tender.gst_percent / 100
+        tax_amount = store_value * cs.tender.tax_percent / 100
         firm_groups.append(
             ProposalFirmGroup(
                 supplier_id=supplier_id,
                 supplier_name=cs.suppliers_by_id[supplier_id].name,
                 items=items,
                 store_value=store_value,
-                gst_amount=gst_amount,
-                contract_value=store_value + gst_amount,
+                tax_amount=tax_amount,
+                contract_value=store_value + tax_amount,
             )
         )
     firm_groups.sort(key=lambda g: g.supplier_name)
@@ -156,7 +156,7 @@ def build_purchase_proposal(session: Session, tender_id: int) -> PurchaseProposa
     grand_total = GrandTotal(
         item_count=sum(len(g.items) for g in firm_groups),
         store_value=sum(g.store_value for g in firm_groups),
-        gst_amount=sum(g.gst_amount for g in firm_groups),
+        tax_amount=sum(g.tax_amount for g in firm_groups),
         contract_value=sum(g.contract_value for g in firm_groups),
     )
 

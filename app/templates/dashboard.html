@@ -18,12 +18,12 @@
 <div class="card">
   {% if recent_tenders %}
   <table>
-    <thead><tr><th>Inquiry No.</th><th class="num">GST %</th><th>Status</th></tr></thead>
+    <thead><tr><th>Inquiry No.</th><th>Tax</th><th>Status</th></tr></thead>
     <tbody>
       {% for t in recent_tenders %}
       <tr>
         <td><a href="/tenders/{{ t.id }}">{{ t.inquiry_no }}</a></td>
-        <td class="num">{{ t.gst_percent }}</td>
+        <td>{{ t.tax_type.value }} {{ t.tax_percent }}%</td>
         <td>{{ t.status.value }}</td>
       </tr>
       {% endfor %}
