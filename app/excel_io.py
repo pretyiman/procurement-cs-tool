@@ -203,8 +203,18 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     lpr_col = lowest_col + 3
     incdec_col = lpr_col + 1
 
-    ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT").font = Font(bold=True, size=13)
-    ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+    banner_align = Alignment(horizontal="center", vertical="center")
+    banner_font = Font(bold=True, size=10)
+
+    title_cell = ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT")
+    title_cell.font = banner_font
+    title_cell.alignment = banner_align
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=incdec_col)
+
+    inquiry_cell = ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+    inquiry_cell.font = banner_font
+    inquiry_cell.alignment = banner_align
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=incdec_col)
 
     header_row = 3
     for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "A/U"), (5, "Qty")]:
@@ -289,6 +299,14 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.cell(row=row, column=7, value=cs.grand_total.store_value).font = bold
     ws.cell(row=row, column=8, value=cs.grand_total.tax_amount).font = bold
     ws.cell(row=row, column=9, value=cs.grand_total.contract_value).font = bold
+
+    # Signature/approval line, matching CS.xlsx's own "COUNTERSIGNED" -
+    # a paper-based countersignature area, not a structured digital block.
+    row += 8
+    sig_cell = ws.cell(row=row, column=1, value="COUNTERSIGNED")
+    sig_cell.font = Font(bold=True, size=12)
+    sig_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=incdec_col)
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12
