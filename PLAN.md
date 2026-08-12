@@ -146,7 +146,125 @@ shown inline.
 
 ---
 
-## Phase 5 — Contract Award Draft generator
+## Phase 5 — Reusable item catalog + supplier catalog UI
+**Status: Not Started**
+
+**Why now:** user feedback after Phase 4 was that the UI doesn't look
+professional and, critically, that **items should be reusable** across
+tenders (a standing catalog like Part No "A-2394" recurring tender after
+tender), not re-typed as free text per tender. This is a schema change:
+`Item` (tender line) currently *stores* part_no/description/unit directly;
+it needs to instead reference a new `ItemMaster` catalog table. No real
+data exists yet (still fixture-only per `CLAUDE.md`), so this is a clean
+schema rewrite, not a migration-with-data-preservation problem.
+
+**Goal:**
+- New `ItemMaster` table: `id, part_no, description, default_unit`,
+  unique on `(part_no, description)` together (not `part_no` alone -
+  the fixture has multiple genuinely different items sharing part_no
+  "NIV" for non-inventory items, distinguished only by description).
+- `Item` (tender line) becomes `id, tender_id, item_master_id, ser, qty,
+  lpr, awarded_supplier_id, award_reason` - part_no/description/unit are
+  read via `item.item_master.*`, not stored on Item itself.
+- Left sidebar layout (Dashboard / Items / Suppliers / Tenders) replacing
+  the current top-nav-only `base.html`.
+- `/items`: catalog list with a search box (part_no/description) +
+  create form. This is where new catalog items get defined now - the old
+  tender-detail free-text "Add item" form is removed.
+- `/suppliers` (list + create) and `/suppliers/{id}` (detail: address,
+  contact, phone, email, tax_no, editable) - supplier records already
+  existed as reusable rows since Phase 1, this just gives them a proper
+  UI instead of only being creatable via the "attach to tender" flow.
+
+**Outputs:** `app/models.py` (ItemMaster + Item rewrite), `app/excel_io.py`
+(`get_or_create_item_master`, import updated to populate it), updated
+`app/cs_engine.py`/`award_engine.py` call sites if any touch item fields
+directly, `app/templates/base.html` (sidebar), `app/templates/items.html`,
+`app/templates/suppliers.html`, `app/templates/supplier_detail.html`,
+routes in `app/main.py`, `docs/data-model.md` updated to match.
+
+**Verification:**
+- `pytest tests/` still passes (existing tests don't assert on
+  part_no/description/unit directly per a repo-wide grep, but the schema
+  change touches every table via FKs, so a full green run is the real
+  gate here).
+- Re-importing `CS.xlsx` twice into the same DB does not duplicate
+  catalog rows - the second import's items resolve to the same
+  `ItemMaster` rows as the first (proves reusability actually works).
+- `/items` search filters correctly; `/suppliers/{id}` shows the right
+  supplier's detail and survives an edit.
+
+---
+
+## Phase 6 — Dashboard home page
+**Status: Not Started**
+
+**Goal:** Replace the current home page (tender list + create/import
+forms bolted onto it) with an actual dashboard: stat cards (tenders by
+status, catalog item count, supplier count) and a recent-tenders list.
+Tender create/import moves to a dedicated `/tenders` page (list + create
++ import), consistent with Items/Suppliers now having their own section.
+
+**Verification:** Home page loads with correct live counts against a
+populated DB (spot-check against known fixture-derived numbers); creating
+a tender via `/tenders` still works exactly as before (same underlying
+routes, just relocated).
+
+---
+
+## Phase 7 — Guided quotation-entry page
+**Status: Not Started**
+
+**Goal:** A single-line entry workflow matching how a procurement officer
+actually receives a quotation (one supplier's price for one item at a
+time), instead of only the big grid: `/tenders/{id}/quote-entry` -
+- Item dropdown, sourced from the catalog (Phase 5), not free text.
+  Selecting an item auto-displays its unit (from `ItemMaster.default_unit`,
+  no extra request - plain JS reading a data attribute already in the
+  page).
+- Qty: prefilled from the existing tender line if this item is already on
+  the tender; otherwise required and creates the line.
+- Supplier dropdown (existing suppliers, reused from Phase 5's catalog).
+- Rate input, with a live-computed Total Value (qty x rate) via inline
+  JS - cosmetic only, the server recomputes authoritatively on submit.
+- Submitting upserts the tender line (`Item`, by item_master_id) and the
+  `Quote` (by item+supplier) - same underlying tables as the existing
+  grid, this is an additional entry path, not a new data model.
+- A running table below the form lists quotations entered so far this
+  session, for confirmation.
+
+**Verification:** Entering a quotation for a brand-new item on a tender
+creates both the line and the quote correctly (qty and rate both
+persisted); entering a second supplier's rate for an already-added item
+does not duplicate or disturb the first supplier's quote; the resulting
+comparative statement/lowest calculation is unaffected by which entry
+path (grid vs this page) was used to get the data in.
+
+---
+
+## Phase 8 — Visual award comparison (Award Review redesign)
+**Status: Not Started**
+
+**Goal:** Per user feedback, replace the dropdown-based override control
+with a side-by-side price comparison: for each item, show every quoting
+supplier as a clickable price pill (lowest visually highlighted/badged).
+Clicking a pill submits the award directly - no dropdown needed. This is
+a UI change on top of the existing `award_engine.py` (`validate_override`
+still enforces "reason required unless lowest" and "must have quoted"
+server-side, unchanged) - implemented as multiple submit buttons sharing
+one `name` in a single per-item `<form>`, no JS required for the award
+action itself (only the optional reason text field needs to accompany
+whichever button was clicked, which plain HTML forms already do).
+
+**Verification:** Clicking the lowest-priced pill for an item awards it
+immediately with no reason prompt; clicking a non-lowest pill without
+first typing a reason is rejected with the same error `validate_override`
+already produces; the resulting Purchase Proposal reflects the click
+exactly as it did the old dropdown-based override in Phase 4's tests.
+
+---
+
+## Phase 9 — Contract Award Draft generator
 **Status: Not Started**
 
 **Goal:** One Word (.docx) draft per winning firm, generated from an
@@ -178,7 +296,7 @@ so different approvers can review their part independently:
 
 ---
 
-## Phase 6 — CS Excel export matching existing template
+## Phase 10 — CS Excel export matching existing template
 **Status: Not Started**
 
 **Goal:** "Export to Excel" produces a file matching the layout/formatting
@@ -191,7 +309,7 @@ enough to be presentable, not necessarily byte-identical).
 
 ---
 
-## Phase 7 — Packaging
+## Phase 11 — Packaging
 **Status: Not Started**
 
 **Goal:** Standalone local launcher (no manual Python install) that starts
@@ -209,7 +327,7 @@ installer/launcher itself.
 - Multi-user / online hosting, login & roles
 - Supplier self-service quote submission (portal/email intake)
 - Historical LPR auto-tracking across tenders
-- Formal approval-routing workflow / audit trail / e-signatures (Phase 5
+- Formal approval-routing workflow / audit trail / e-signatures (Phase 9
   produces documents *for* multi-person review, but does not itself route
   approvals or track sign-off status)
 - Cross-tender analytics (e.g., which supplier is consistently cheapest)
