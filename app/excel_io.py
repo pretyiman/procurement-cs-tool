@@ -23,6 +23,7 @@ from .models import Item, ItemMaster, Quote, Supplier, Tender, TenderStatus
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
+    from .cs_engine import ComparativeStatement
 
 _GST_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*GST", re.IGNORECASE)
 _NQ_VALUES = {"NQ", "-", ""}
@@ -172,6 +173,119 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
     session.commit()
     session.refresh(tender)
     return tender
+
+
+def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
+    """Render a ComparativeStatement (app/cs_engine.py) as an .xlsx workbook
+    shaped like the original CS.xlsx: Ser/Part No/Description/A-U/Qty, one
+    rate column per supplier, Lowest Firm/Rate/Total Value, LPR/Inc-Dec%,
+    then totals and a per-firm summary block. Deliberately shaped so the
+    app's own import_tender() can re-parse it (see
+    test_reexporting_and_reimporting_round_trips_correctly) - not just a
+    one-way report."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Comparative Statement"
+    bold = Font(bold=True)
+
+    suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
+    n = len(suppliers)
+
+    rate_start_col = 6  # after Ser/Part No/Description/A-U/Qty
+    lowest_col = rate_start_col + n
+    lpr_col = lowest_col + 3
+    incdec_col = lpr_col + 1
+
+    ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT").font = Font(bold=True, size=13)
+    ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+
+    header_row = 3
+    ws.cell(row=header_row, column=1, value="Ser").font = bold
+    ws.cell(row=header_row, column=2, value="Part No").font = bold
+    ws.cell(row=header_row, column=3, value="Description").font = bold
+    ws.cell(row=header_row, column=4, value="A/U").font = bold
+    ws.cell(row=header_row, column=5, value="Qty").font = bold
+    ws.cell(
+        row=header_row,
+        column=rate_start_col,
+        value=f"Rate Quoted by Firms Excl {cs.tender.gst_percent:g}% GST",
+    ).font = bold
+    ws.cell(row=header_row, column=lowest_col, value="Lowest").font = bold
+    ws.cell(row=header_row, column=lpr_col, value="LPR (Rs)").font = bold
+    ws.cell(row=header_row, column=incdec_col, value="Inc/Dec %").font = bold
+    if n > 1:
+        ws.merge_cells(start_row=header_row, start_column=rate_start_col, end_row=header_row, end_column=lowest_col - 1)
+    ws.merge_cells(start_row=header_row, start_column=lowest_col, end_row=header_row, end_column=lowest_col + 2)
+
+    subheader_row = header_row + 1
+    for i, supplier in enumerate(suppliers):
+        ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+    ws.cell(row=subheader_row, column=lowest_col, value="Firm").font = bold
+    ws.cell(row=subheader_row, column=lowest_col + 1, value="Rate Rs.").font = bold
+    ws.cell(row=subheader_row, column=lowest_col + 2, value="Total Value").font = bold
+
+    # cs.item_results doesn't carry raw per-supplier rates, so pull them from
+    # item.quotes (lazy-loaded via the still-open session) as we go.
+    row = subheader_row + 1
+    for r in cs.item_results:
+        item = r.item
+        ws.cell(row=row, column=1, value=item.ser)
+        ws.cell(row=row, column=2, value=item.item_master.part_no)
+        ws.cell(row=row, column=3, value=item.item_master.description)
+        ws.cell(row=row, column=4, value=item.item_master.default_unit)
+        ws.cell(row=row, column=5, value=item.qty)
+        for i, supplier in enumerate(suppliers):
+            rate = next((q.rate for q in item.quotes if q.supplier_id == supplier.id), None)
+            ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+        lowest_name = cs.suppliers_by_id[r.lowest_supplier_id].name if r.lowest_supplier_id else "NQ"
+        ws.cell(row=row, column=lowest_col, value=lowest_name)
+        ws.cell(row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
+        ws.cell(row=row, column=lowest_col + 2, value=r.total_value)
+        ws.cell(row=row, column=lpr_col, value=item.lpr if item.lpr is not None else "-")
+        ws.cell(row=row, column=incdec_col, value=f"{r.inc_dec_pct:.2f}" if r.inc_dec_pct is not None else "-")
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value=f"Total Amount Excl {cs.tender.gst_percent:g}% GST (Rs)").font = bold
+    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.store_value)
+    row += 1
+    ws.cell(row=row, column=1, value=f"{cs.tender.gst_percent:g}% GST (Rs)").font = bold
+    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.gst_amount)
+    row += 1
+    ws.cell(row=row, column=1, value=f"Total Amount Incl {cs.tender.gst_percent:g}% GST (Rs)").font = bold
+    ws.cell(row=row, column=lowest_col + 2, value=cs.grand_total.contract_value)
+
+    row += 2
+    ws.cell(row=row, column=4, value="SUMMARY").font = bold
+    row += 1
+    ws.cell(row=row, column=4, value="Firm").font = bold
+    ws.cell(row=row, column=6, value="Items").font = bold
+    ws.cell(row=row, column=7, value="Store Value").font = bold
+    ws.cell(row=row, column=8, value="GST").font = bold
+    ws.cell(row=row, column=9, value="Contr Value").font = bold
+    row += 1
+    for f in cs.firm_summaries:
+        ws.cell(row=row, column=4, value=f.supplier_name)
+        ws.cell(row=row, column=6, value=f.item_count)
+        ws.cell(row=row, column=7, value=f.store_value)
+        ws.cell(row=row, column=8, value=f.gst_amount)
+        ws.cell(row=row, column=9, value=f.contract_value)
+        row += 1
+    ws.cell(row=row, column=4, value="G.Total").font = bold
+    ws.cell(row=row, column=6, value=cs.grand_total.item_count).font = bold
+    ws.cell(row=row, column=7, value=cs.grand_total.store_value).font = bold
+    ws.cell(row=row, column=8, value=cs.grand_total.gst_amount).font = bold
+    ws.cell(row=row, column=9, value=cs.grand_total.contract_value).font = bold
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 36
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 8
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
 
 
 def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:

@@ -15,6 +15,7 @@ from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
 from .docx_export import generate_contract_draft
 from .excel_io import (
+    export_cs_xlsx,
     export_purchase_proposal_xlsx,
     get_or_create_item_master,
     get_or_create_supplier,
@@ -290,6 +291,21 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             "grand_total": cs.grand_total,
             "catalog_items": catalog_items,
         },
+    )
+
+
+@app.get("/tenders/{tender_id}/export")
+def export_cs(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    cs = build_comparative_statement(session, tender_id)
+    content = export_cs_xlsx(cs)
+    filename = f"comparative-statement-tender-{tender_id}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

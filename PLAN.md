@@ -380,7 +380,7 @@ firms (5, 3, 5, and 1 awarded items respectively).
 ---
 
 ## Phase 10 — CS Excel export matching existing template
-**Status: Not Started**
+**Status: Done**
 
 **Goal:** "Export to Excel" produces a file matching the layout/formatting
 of the existing `CS.xlsx` (same columns, lowest firm/rate/total, summary
@@ -389,6 +389,19 @@ block) so it can drop into existing approval paperwork unchanged.
 **Verification:** Exported file for the fixture tender, opened in Excel,
 matches `CS.xlsx` cell-for-cell in the numeric columns (formatting close
 enough to be presentable, not necessarily byte-identical).
+
+**Confirmed:** Went further than static cell comparison - a genuine
+round-trip test (`test_exported_cs_round_trips_through_the_apps_own_importer`)
+exports the fixture tender's CS, re-imports that exported file with the
+app's own `import_tender()` into a completely fresh DB, and asserts the
+recomputed CS reproduces the known-good numbers exactly (SNS 10/209,655/
+247,392.90; Awan 11/211,134/249,138.12; grand total 21/420,789/496,531.02;
+Ser 1 & 21 still NQ). This proves the export is genuinely CS.xlsx-shaped,
+not just presentable. `pytest tests/` (20, 1 new) passes. Manually
+verified via the actual `/tenders/{id}/export` HTTP endpoint against the
+seeded dummy tender: header/subheader/lowest-firm/rate/total/LPR/Inc-Dec%
+all correct per row, "M/s Zafar & Sons" ampersand intact, and the totals
+row matches the known grand total (2,300,860) exactly.
 
 ---
 
