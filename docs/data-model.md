@@ -15,7 +15,7 @@ changes; code and `PLAN.md` verification steps should match it.
 | status | enum | `draft` -> `proposal_generated` -> `awarded` |
 | awarded_date | date, nullable | set when status -> `awarded`; feeds LPR history (see below) |
 | indent_no | text, nullable | for PP/CA documents; defaults to inquiry_no when rendering if blank |
-| subject_department | text, nullable | for PP; e.g. "Admin of Exp Store" |
+| department_id | int, FK -> Department, nullable | for PP; picked from the reusable Department catalog (see below) |
 | firms_invited_count | int, nullable | for PP para - how many firms the inquiry was sent to |
 | issue_date | date, nullable | for PP - when the tender inquiry was issued |
 | opening_date | date, nullable | for PP - tender opening date |
@@ -65,6 +65,12 @@ alone can't be the dedup key - see `get_or_create_item_master` in
 | item_id | FK | |
 | supplier_id | FK | |
 | rate | decimal, nullable | null/absent = "NQ" (not quoted) |
+
+### Department (catalog — reusable across tenders)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| name | text, unique | e.g. "Procurement Section" - picked via dropdown on RFQ creation, same pattern as ItemMaster/Supplier |
 
 ### TenderTemplate / TenderTemplateItem (saved item lists, for recurring tenders)
 | field | type | notes |

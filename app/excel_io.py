@@ -20,7 +20,7 @@ from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
 
-from .models import Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
+from .models import Department, Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
@@ -68,6 +68,17 @@ def get_or_create_supplier(session: Session, name: str) -> Supplier:
     session.add(supplier)
     session.flush()
     return supplier
+
+
+def get_or_create_department(session: Session, name: str) -> Department:
+    name = name.strip()
+    existing = session.exec(select(Department).where(Department.name == name)).first()
+    if existing:
+        return existing
+    department = Department(name=name)
+    session.add(department)
+    session.flush()
+    return department
 
 
 def get_or_create_item_master(

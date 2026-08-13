@@ -123,7 +123,7 @@ def generate_purchase_proposal_doc(
         "issue_date": tender.issue_date.strftime("%d %b %Y") if tender.issue_date else "___",
         "opening_date": tender.opening_date.strftime("%d %b %Y") if tender.opening_date else "___",
         "firms_invited_count": tender.firms_invited_count or "___",
-        "subject_department": _esc(tender.subject_department) if tender.subject_department else "___",
+        "subject_department": _esc(tender.department.name) if tender.department else "___",
         "total_item_count": sum(len(g.items) for g in proposal.firm_groups) + len(proposal.unresolved_items),
         # suppliers_by_id is expected to be cs.suppliers_by_id (every supplier
         # with >=1 quote on this tender, win or not) - i.e. participating firms.

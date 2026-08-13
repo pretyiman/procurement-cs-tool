@@ -11,8 +11,24 @@
         <input type="text" id="inquiry_no" name="inquiry_no" required autofocus>
       </div>
       <div class="field">
-        <label for="subject_department">Department</label>
-        <input type="text" id="subject_department" name="subject_department" placeholder="e.g. Procurement Section">
+        <label for="department-search-input">Department</label>
+        <div class="search-select" id="department-search">
+          <div class="search-select-row">
+            <input type="text" id="department-search-input" class="search-select-input" autocomplete="off"
+                   placeholder="Type to search departments...">
+            <button type="button" class="search-select-add-btn" title="Create a new department">+</button>
+          </div>
+          <input type="hidden" class="search-select-hidden" name="department_id">
+          <div class="search-select-menu"></div>
+          <div class="search-select-create">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" class="qc-name" data-qc-required>
+            </div>
+            <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
+            <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>Tax</label>
@@ -52,8 +68,24 @@
         <input type="text" id="template_inquiry_no" name="inquiry_no" required>
       </div>
       <div class="field">
-        <label for="template_subject_department">Department</label>
-        <input type="text" id="template_subject_department" name="subject_department" placeholder="e.g. Procurement Section">
+        <label for="template-department-search-input">Department</label>
+        <div class="search-select" id="template-department-search">
+          <div class="search-select-row">
+            <input type="text" id="template-department-search-input" class="search-select-input" autocomplete="off"
+                   placeholder="Type to search departments...">
+            <button type="button" class="search-select-add-btn" title="Create a new department">+</button>
+          </div>
+          <input type="hidden" class="search-select-hidden" name="department_id">
+          <div class="search-select-menu"></div>
+          <div class="search-select-create">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" class="qc-name" data-qc-required>
+            </div>
+            <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
+            <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>Tax</label>
@@ -76,4 +108,16 @@
   {% endif %}
 </div>
 <p><a href="/templates">Manage RFQ templates &rarr;</a></p>
+
+<script>
+  var departmentOpts = {
+    allowCreate: true,
+    createUrl: '/departments/quick-create',
+    buildCreatedItem: function (data) { return { id: data.id, label: data.name }; }
+  };
+  initSearchSelect('department-search', {{ departments_json | safe }}, departmentOpts);
+  {% if tender_templates %}
+  initSearchSelect('template-department-search', {{ departments_json | safe }}, departmentOpts);
+  {% endif %}
+</script>
 {% endblock %}

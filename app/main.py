@@ -21,11 +21,13 @@ from .paths import resource_path
 from .excel_io import (
     export_cs_xlsx,
     export_purchase_proposal_xlsx,
+    get_or_create_department,
     get_or_create_item_master,
     get_or_create_supplier,
     import_tender,
 )
 from .models import (
+    Department,
     Item,
     ItemMaster,
     Quote,
@@ -138,6 +140,40 @@ def quick_create_item(
         "description": item_master.description,
         "unit": item_master.default_unit,
     }
+
+
+# ---------------------------------------------------------------------------
+# Department catalog (reusable across tenders)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/departments", response_class=HTMLResponse)
+def departments_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+    departments = session.exec(select(Department).order_by(Department.name)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        departments = [d for d in departments if needle in d.name.lower()]
+    return templates.TemplateResponse(request, "departments.html", {"departments": departments, "q": q})
+
+
+@app.post("/departments")
+def create_department(name: str = Form(...), session: Session = Depends(get_session)):
+    if not name.strip():
+        raise HTTPException(400, "Name is required")
+    get_or_create_department(session, name)
+    session.commit()
+    return RedirectResponse("/departments", status_code=303)
+
+
+@app.post("/departments/quick-create")
+def quick_create_department(name: str = Form(...), session: Session = Depends(get_session)):
+    """Same as create_department, but returns JSON - used by the department
+    search-select's "+" button so the RFQ form doesn't lose its state."""
+    if not name.strip():
+        raise HTTPException(400, "Name is required")
+    department = get_or_create_department(session, name)
+    session.commit()
+    return {"id": department.id, "name": department.name}
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +317,7 @@ def save_as_template(tender_id: int, name: str = Form(...), session: Session = D
 def create_tender_from_template(
     template_id: str = Form(...),
     inquiry_no: str = Form(...),
-    subject_department: str = Form(""),
+    department_id: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -301,7 +337,7 @@ def create_tender_from_template(
 
     tender = Tender(
         inquiry_no=inquiry_no.strip(),
-        subject_department=subject_department.strip() or None,
+        department_id=int(department_id) if department_id.strip() else None,
         tax_type=tax_type_val,
         tax_percent=tax_pct,
         status=TenderStatus.draft,
@@ -339,13 +375,22 @@ def delete_template(template_id: int, session: Session = Depends(get_session)):
 @app.get("/tenders/new", response_class=HTMLResponse)
 def new_tender_form(request: Request, session: Session = Depends(get_session)):
     tender_templates = session.exec(select(TenderTemplate).order_by(TenderTemplate.name)).all()
-    return templates.TemplateResponse(request, "tender_new.html", {"tender_templates": tender_templates})
+    departments = session.exec(select(Department).order_by(Department.name)).all()
+    departments_json = _json_for_script([{"id": d.id, "label": d.name} for d in departments])
+    return templates.TemplateResponse(
+        request,
+        "tender_new.html",
+        {
+            "tender_templates": tender_templates,
+            "departments_json": departments_json,
+        },
+    )
 
 
 @app.post("/tenders")
 def create_tender(
     inquiry_no: str = Form(...),
-    subject_department: str = Form(""),
+    department_id: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -361,7 +406,7 @@ def create_tender(
 
     tender = Tender(
         inquiry_no=inquiry_no.strip(),
-        subject_department=subject_department.strip() or None,
+        department_id=int(department_id) if department_id.strip() else None,
         tax_type=tax_type_val,
         tax_percent=tax_pct,
         status=TenderStatus.draft,
@@ -793,7 +838,13 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
     if tender is None:
         raise HTTPException(404, "Tender not found")
     proposal = build_purchase_proposal(session, tender_id)
-    return templates.TemplateResponse(request, "purchase_proposal.html", {"tender": tender, "proposal": proposal})
+    departments = session.exec(select(Department).order_by(Department.name)).all()
+    departments_json = _json_for_script([{"id": d.id, "label": d.name} for d in departments])
+    return templates.TemplateResponse(
+        request,
+        "purchase_proposal.html",
+        {"tender": tender, "proposal": proposal, "departments_json": departments_json},
+    )
 
 
 @app.post("/tenders/{tender_id}/generate-proposal")
@@ -903,7 +954,7 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
 def update_document_details(
     tender_id: int,
     indent_no: str = Form(""),
-    subject_department: str = Form(""),
+    department_id: str = Form(""),
     firms_invited_count: str = Form(""),
     issue_date: str = Form(""),
     opening_date: str = Form(""),
@@ -920,7 +971,7 @@ def update_document_details(
 
     try:
         tender.indent_no = indent_no.strip() or None
-        tender.subject_department = subject_department.strip() or None
+        tender.department_id = int(department_id) if department_id.strip() else None
         tender.firms_invited_count = int(firms_invited_count) if firms_invited_count.strip() else None
         tender.issue_date = _parse_date(issue_date)
         tender.opening_date = _parse_date(opening_date)

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Departments - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Department catalog</h1>
+<p class="muted">Reusable departments/sections - add one here once, then pick it on any number of RFQs.</p>
+
+<div class="card">
+  <form method="get" action="/departments" class="row-form">
+    <div class="field">
+      <label for="q">Search name</label>
+      <input type="text" id="q" name="q" value="{{ q }}">
+    </div>
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn btn-secondary" href="/departments">Clear</a>{% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">Add department</h2>
+  <form method="post" action="/departments" class="row-form">
+    <div class="field" style="flex:2">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required placeholder="e.g. Procurement Section">
+    </div>
+    <button type="submit">Add department</button>
+  </form>
+</div>
+
+<h2>Catalog ({{ departments|length }})</h2>
+<div class="card" style="overflow-x:auto">
+  {% if departments %}
+  <table>
+    <thead><tr><th>Name</th></tr></thead>
+    <tbody>
+      {% for d in departments %}
+      <tr><td>{{ d.name }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No departments {% if q %}match "{{ q }}"{% else %}yet - add one above{% endif %}.</p>
+  {% endif %}
+</div>
+{% endblock %}

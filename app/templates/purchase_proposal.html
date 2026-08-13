@@ -36,8 +36,25 @@
       <input type="text" id="indent_no" name="indent_no" value="{{ tender.indent_no or '' }}" placeholder="defaults to inquiry no.">
     </div>
     <div class="field">
-      <label for="subject_department">Subject / Department</label>
-      <input type="text" id="subject_department" name="subject_department" value="{{ tender.subject_department or '' }}">
+      <label for="department-search-input">Subject / Department</label>
+      <div class="search-select" id="department-search">
+        <div class="search-select-row">
+          <input type="text" id="department-search-input" class="search-select-input" autocomplete="off"
+                 value="{{ tender.department.name if tender.department else '' }}"
+                 placeholder="Type to search departments...">
+          <button type="button" class="search-select-add-btn" title="Create a new department">+</button>
+        </div>
+        <input type="hidden" class="search-select-hidden" name="department_id" value="{{ tender.department_id or '' }}">
+        <div class="search-select-menu"></div>
+        <div class="search-select-create">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" class="qc-name" data-qc-required>
+          </div>
+          <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
+          <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
+        </div>
+      </div>
     </div>
     <div class="field" style="max-width:110px">
       <label for="firms_invited_count">Firms invited</label>
@@ -133,4 +150,12 @@
     </tbody>
   </table>
 </div>
+
+<script>
+  initSearchSelect('department-search', {{ departments_json | safe }}, {
+    allowCreate: true,
+    createUrl: '/departments/quick-create',
+    buildCreatedItem: function (data) { return { id: data.id, label: data.name }; }
+  });
+</script>
 {% endblock %}

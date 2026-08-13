@@ -61,7 +61,7 @@ ProcurementCSTool.spec      # PyInstaller build spec (committed, reproducible)
 app/
   main.py                # FastAPI app + all routes
   models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote,
-                           # TenderTemplate/TenderTemplateItem
+                           # Department, TenderTemplate/TenderTemplateItem
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
@@ -78,12 +78,14 @@ app/
     pp_template.docx                        # Purchase Proposal - same approach,
                                              # from PP.doc
   templates/
-    base.html                 # sidebar shell (Dashboard/Items/Suppliers/Tenders) +
-                               # shared search-select JS combobox
+    base.html                 # sidebar shell (Dashboard/Items/Suppliers/
+                               # Departments/RFQs) + shared search-select JS
+                               # combobox (supports inline "+" quick-create)
     dashboard.html              # "/" — stat cards + recent tenders
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
+    departments.html                 # "/departments" — catalog list/search/create
     tenders_list.html                # "/tenders" — list/create/import
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt

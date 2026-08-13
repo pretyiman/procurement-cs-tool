@@ -17,6 +17,14 @@ class TaxType(str, Enum):
     PST = "PST"
 
 
+class Department(SQLModel, table=True):
+    """Reusable department/section catalog - same pattern as Supplier and
+    ItemMaster (create once, pick from a dropdown on every RFQ after)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+
+
 class Tender(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     inquiry_no: str
@@ -29,7 +37,7 @@ class Tender(SQLModel, table=True):
     # documents (Phase 12) - optional, filled in on the tender detail page
     # before generating documents; sensible defaults if left blank.
     indent_no: Optional[str] = None  # defaults to inquiry_no when rendering if blank
-    subject_department: Optional[str] = None
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id")
     firms_invited_count: Optional[int] = None
     issue_date: Optional[datetime.date] = None
     opening_date: Optional[datetime.date] = None
@@ -37,6 +45,7 @@ class Tender(SQLModel, table=True):
     warranty_months: int = 3
 
     items: List["Item"] = Relationship(back_populates="tender")
+    department: Optional[Department] = Relationship()
 
 
 class Supplier(SQLModel, table=True):

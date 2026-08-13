@@ -268,25 +268,29 @@
         var addBtn = root.querySelector('.search-select-add-btn');
         var createPanel = root.querySelector('.search-select-create');
         if (addBtn && createPanel) {
-          var partNoInput = createPanel.querySelector('.qc-part-no');
-          var descInput = createPanel.querySelector('.qc-description');
-          var unitInput = createPanel.querySelector('.qc-unit');
+          // Any field in the create panel tagged class="qc-<name>" is
+          // submitted to createUrl as form field <name> - lets each page
+          // define its own quick-create fields (item = part_no/
+          // description/unit, department = just name) without the
+          // widget needing to know their shape. data-qc-required marks
+          // the one field that must be non-empty, and also gets
+          // prefilled from whatever's already typed in the search box.
+          var qcFields = createPanel.querySelectorAll('[class^="qc-"]');
+          var requiredField = createPanel.querySelector('[data-qc-required]');
           var submitBtn = createPanel.querySelector('.qc-submit');
           var cancelBtn = createPanel.querySelector('.qc-cancel');
 
           closeCreatePanel = function () {
             createPanel.classList.remove('open');
-            partNoInput.value = '';
-            descInput.value = '';
-            unitInput.value = '';
+            qcFields.forEach(function (el) { el.value = ''; });
           };
 
           addBtn.addEventListener('click', function (e) {
             e.preventDefault();
             menu.classList.remove('open');
-            descInput.value = input.value.trim();
+            if (requiredField) requiredField.value = input.value.trim();
             createPanel.classList.add('open');
-            partNoInput.focus();
+            (requiredField || qcFields[0]).focus();
           });
 
           cancelBtn.addEventListener('click', function (e) {
@@ -296,15 +300,15 @@
 
           submitBtn.addEventListener('click', function (e) {
             e.preventDefault();
-            var description = descInput.value.trim();
-            if (!description) {
-              alert('Description is required.');
+            if (requiredField && !requiredField.value.trim()) {
+              alert('Please fill in the required field.');
               return;
             }
             var body = new URLSearchParams();
-            body.set('part_no', partNoInput.value.trim());
-            body.set('description', description);
-            body.set('default_unit', unitInput.value.trim());
+            qcFields.forEach(function (el) {
+              var key = el.className.replace(/^qc-/, '');
+              body.set(key, el.value.trim());
+            });
             submitBtn.disabled = true;
             fetch(opts.createUrl || '/items/quick-create', {
               method: 'POST',
@@ -314,9 +318,7 @@
               if (!resp.ok) throw new Error('Create failed');
               return resp.json();
             }).then(function (data) {
-              var item = opts.buildCreatedItem
-                ? opts.buildCreatedItem(data)
-                : { id: data.id, label: data.part_no + ' - ' + data.description };
+              var item = opts.buildCreatedItem ? opts.buildCreatedItem(data) : { id: data.id, label: data.name };
               items.push(item);
               select(item);
               closeCreatePanel();
@@ -343,6 +345,7 @@
         <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
         <a href="/items" class="{{ 'active' if request.url.path.startswith('/items') else '' }}">Items</a>
         <a href="/suppliers" class="{{ 'active' if request.url.path.startswith('/suppliers') else '' }}">Suppliers</a>
+        <a href="/departments" class="{{ 'active' if request.url.path.startswith('/departments') else '' }}">Departments</a>
         <a href="/tenders" class="{{ 'active' if request.url.path.startswith('/tenders') else '' }}">RFQs</a>
       </nav>
     </aside>
