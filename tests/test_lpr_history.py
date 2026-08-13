@@ -151,8 +151,16 @@ def test_full_lifecycle_auto_fills_lpr_on_next_tender():
         resp = client.post("/tenders", data={"inquiry_no": "Tender A"}, follow_redirects=False)
         tender_a_id = int(resp.headers["location"].rsplit("/", 1)[-1])
         client.post(
+            f"/tenders/{tender_a_id}/items",
+            data={"item_master_id": str(item_master_id), "qty": "10"},
+            follow_redirects=False,
+        )
+        with Session(engine) as session:
+            item_a_id = session.exec(select(Item).where(Item.tender_id == tender_a_id)).one().id
+        supplier_id = client.post("/suppliers/quick-create", data={"name": "Acme"}).json()["id"]
+        client.post(
             f"/tenders/{tender_a_id}/quote-entry",
-            data={"item_master_id": str(item_master_id), "qty": "10", "supplier_name": "Acme", "rate": "100"},
+            data={"supplier_id": str(supplier_id), f"rate__{item_a_id}": "100"},
             follow_redirects=False,
         )
         client.post(f"/tenders/{tender_a_id}/generate-proposal", follow_redirects=False)

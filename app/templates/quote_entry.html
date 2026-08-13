@@ -2,7 +2,7 @@
 {% block title %}Quote Entry - {{ tender.inquiry_no }}{% endblock %}
 {% block content %}
 <h1>{{ tender.inquiry_no }} &mdash; Quote Entry</h1>
-<p class="muted">Enter one supplier's price for one item at a time. Selecting an item fills in its unit (and quantity, if it's already on this RFQ) automatically.</p>
+<p class="muted">Pick a supplier, then enter their rate against each item already on this RFQ. Leave a rate blank for anything they didn't quote.</p>
 <p>
   <a href="/tenders/{{ tender.id }}">&larr; Back to items</a> &middot;
   <a href="/tenders/{{ tender.id }}/award">Award Review</a> &middot;
@@ -10,109 +10,117 @@
 </p>
 
 <div class="card">
-  <form method="post" action="/tenders/{{ tender.id }}/quote-entry" class="row-form" id="quote-entry-form">
-    <div class="field" style="flex:2">
-      <label for="item-search-input">Item</label>
-      <div class="search-select" id="item-search">
-        <div class="search-select-row">
-          <input type="text" id="item-search-input" class="search-select-input" autocomplete="off"
-                 placeholder="Type to search items...">
-          <button type="button" class="search-select-add-btn" title="Create a new catalog item">+</button>
+  <h2 style="margin-top:0">Supplier</h2>
+  <div class="field" style="max-width:420px">
+    <label for="supplier-search-input">Type to search or add a new supplier</label>
+    <div class="search-select" id="supplier-search">
+      <div class="search-select-row">
+        <input type="text" id="supplier-search-input" class="search-select-input" autocomplete="off"
+               value="{{ selected_supplier.name if selected_supplier else '' }}"
+               placeholder="Type to search suppliers...">
+        <button type="button" class="search-select-add-btn" title="Create a new supplier">+</button>
+      </div>
+      <div class="search-select-menu"></div>
+      <div class="search-select-create">
+        <div class="field">
+          <label>Name</label>
+          <input type="text" class="qc-name" data-qc-required>
         </div>
-        <input type="hidden" class="search-select-hidden" name="item_master_id">
-        <div class="search-select-menu"></div>
-        <div class="search-select-create">
-          <div class="field">
-            <label>Part No (optional)</label>
-            <input type="text" class="qc-part_no">
-          </div>
-          <div class="field">
-            <label>Description</label>
-            <input type="text" class="qc-description" data-qc-required>
-          </div>
-          <div class="field">
-            <label>Unit (optional)</label>
-            <input type="text" class="qc-default_unit">
-          </div>
-          <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
-          <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
-        </div>
+        <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
+        <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
       </div>
     </div>
-    <div class="field" style="max-width:90px">
-      <label for="unit_display">Unit</label>
-      <input type="text" id="unit_display" readonly>
-    </div>
-    <div class="field" style="max-width:100px">
-      <label for="qty">Qty</label>
-      <input type="text" id="qty" name="qty" required oninput="updateTotal()">
-    </div>
-    <div class="field">
-      <label for="supplier-search-input">Supplier</label>
-      <div class="search-select" id="supplier-search">
-        <input type="text" id="supplier-search-input" class="search-select-input" name="supplier_name"
-               autocomplete="off" required placeholder="Type to search or add a new supplier...">
-        <div class="search-select-menu"></div>
-      </div>
-    </div>
-    <div class="field" style="max-width:110px">
-      <label for="rate">Rate</label>
-      <input type="text" id="rate" name="rate" required oninput="updateTotal()">
-    </div>
-    <div class="field" style="max-width:110px">
-      <label>Total Value</label>
-      <div id="total_display" class="muted" style="padding:0.35rem 0">-</div>
-    </div>
-    <button type="submit">Save quotation</button>
-  </form>
+  </div>
 </div>
 
-<h2>Quotations recorded for this RFQ</h2>
+{% if selected_supplier %}
 <div class="card" style="overflow-x:auto">
-  {% if recorded %}
+  <h2 style="margin-top:0">{{ selected_supplier.name }} &mdash; enter rates</h2>
+  {% if items %}
+  <form method="post" action="/tenders/{{ tender.id }}/quote-entry">
+    <input type="hidden" name="supplier_id" value="{{ selected_supplier.id }}">
+    <table>
+      <thead>
+        <tr>
+          <th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th>
+          <th class="num">Rate</th><th class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        {% set rate = rate_map.get(item.id) %}
+        <tr>
+          <td>{{ item.ser }}</td>
+          <td>{{ item.item_master.part_no }}</td>
+          <td>{{ item.item_master.description }}</td>
+          <td>{{ item.item_master.default_unit }}</td>
+          <td class="num">{{ item.qty }}</td>
+          <td class="num">
+            <input class="rate-input" type="text" name="rate__{{ item.id }}" data-qty="{{ item.qty }}"
+                   value="{{ rate if rate is not none else '' }}" placeholder="NQ" oninput="updateRowTotal(this)">
+          </td>
+          <td class="num total-cell">{{ '%.2f'|format(item.qty * rate) if rate is not none else '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p><button type="submit">Save Quote</button></p>
+  </form>
+  {% else %}
+  <p class="empty">This RFQ has no items yet - add some on the <a href="/tenders/{{ tender.id }}">RFQ page</a> first.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2>All quotes so far &mdash; cross-check</h2>
+<div class="card" style="overflow-x:auto">
+  {% if items and quoting_suppliers %}
   <table>
-    <thead><tr><th>Ser</th><th>Part No</th><th>Description</th><th>Supplier</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
-    <tbody>
-      {% for r in recorded %}
+    <thead>
       <tr>
-        <td>{{ r.ser }}</td><td>{{ r.part_no }}</td><td>{{ r.description }}</td>
-        <td>{{ r.supplier_name }}</td><td class="num">{{ r.qty }}</td>
-        <td class="num">{{ '%.2f'|format(r.rate) }}</td><td class="num">{{ '%.2f'|format(r.total) }}</td>
+        <th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th>
+        {% for s in quoting_suppliers %}
+        <th><a href="/tenders/{{ tender.id }}/quote-entry?supplier_id={{ s.id }}">{{ s.name }}</a></th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.ser }}</td>
+        <td>{{ item.item_master.part_no }}</td>
+        <td>{{ item.item_master.description }}</td>
+        <td class="num">{{ item.qty }}</td>
+        {% for s in quoting_suppliers %}
+        {% set rate = full_rate_matrix.get((item.id, s.id)) %}
+        <td class="num {{ 'lowest-cell' if lowest_by_item_id.get(item.id) == s.id else '' }}">
+          {{ '%.2f'|format(rate) if rate is not none else '-' }}
+        </td>
+        {% endfor %}
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p class="empty">No quotations recorded yet - use the form above.</p>
+  <p class="empty">No quotes recorded yet - pick a supplier above and enter their rates.</p>
   {% endif %}
 </div>
 
 <script>
-  function updateTotal() {
-    var qty = parseFloat(document.getElementById('qty').value);
-    var rate = parseFloat(document.getElementById('rate').value);
-    var display = document.getElementById('total_display');
-    display.textContent = (!isNaN(qty) && !isNaN(rate)) ? (qty * rate).toFixed(2) : '-';
+  function updateRowTotal(input) {
+    var row = input.closest('tr');
+    var qty = parseFloat(input.dataset.qty);
+    var rate = parseFloat(input.value);
+    var totalCell = row.querySelector('.total-cell');
+    totalCell.textContent = (!isNaN(qty) && !isNaN(rate)) ? (qty * rate).toFixed(2) : '-';
   }
 
-  initSearchSelect('item-search', {{ catalog_items_json | safe }}, {
+  initSearchSelect('supplier-search', {{ supplier_names_json | safe }}, {
     allowCreate: true,
-    buildCreatedItem: function (data) {
-      return { id: data.id, label: data.part_no + ' - ' + data.description, unit: data.unit, qty: '' };
-    },
+    createUrl: '/suppliers/quick-create',
+    buildCreatedItem: function (data) { return { id: data.id, label: data.name }; },
     onSelect: function (item) {
-      document.getElementById('unit_display').value = item.unit || '';
-      document.getElementById('qty').value = item.qty || '';
-      updateTotal();
-    }
-  });
-  initSearchSelect('supplier-search', {{ supplier_names_json | safe }});
-
-  document.getElementById('quote-entry-form').addEventListener('submit', function (e) {
-    var hidden = document.querySelector('#item-search .search-select-hidden');
-    if (!hidden.value) {
-      e.preventDefault();
-      alert('Please pick an item from the search results.');
+      window.location.href = '/tenders/{{ tender.id }}/quote-entry?supplier_id=' + item.id;
     }
   });
 </script>

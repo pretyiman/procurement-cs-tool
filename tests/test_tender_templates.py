@@ -41,9 +41,14 @@ def test_save_as_template_then_create_tender_copies_items_not_quotes():
         client.post(f"/tenders/{source_id}/items", data={"item_master_id": str(im1_id), "qty": "10"})
         client.post(f"/tenders/{source_id}/items", data={"item_master_id": str(im2_id), "qty": "25"})
         # A quote too, to prove quotes do NOT get copied into the template.
+        with Session(engine) as session:
+            item1_id = session.exec(
+                select(Item).where(Item.tender_id == source_id, Item.item_master_id == im1_id)
+            ).one().id
+        supplier_id = client.post("/suppliers/quick-create", data={"name": "Acme"}).json()["id"]
         client.post(
             f"/tenders/{source_id}/quote-entry",
-            data={"item_master_id": str(im1_id), "qty": "10", "supplier_name": "Acme", "rate": "50"},
+            data={"supplier_id": str(supplier_id), f"rate__{item1_id}": "50"},
         )
 
         resp = client.post(

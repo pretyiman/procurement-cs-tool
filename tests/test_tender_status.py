@@ -39,8 +39,19 @@ def _tender_with_one_awarded_item(client, engine) -> int:
         item_master_id = im.id
 
     client.post(
+        f"/tenders/{tender_id}/items",
+        data={"item_master_id": str(item_master_id), "qty": "5"},
+        follow_redirects=False,
+    )
+    with Session(engine) as session:
+        from app.models import Item
+
+        item_id = session.exec(select(Item).where(Item.tender_id == tender_id)).one().id
+
+    supplier_id = client.post("/suppliers/quick-create", data={"name": "Acme"}).json()["id"]
+    client.post(
         f"/tenders/{tender_id}/quote-entry",
-        data={"item_master_id": str(item_master_id), "qty": "5", "supplier_name": "Acme", "rate": "10"},
+        data={"supplier_id": str(supplier_id), f"rate__{item_id}": "10"},
         follow_redirects=False,
     )
     return tender_id

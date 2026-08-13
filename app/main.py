@@ -238,6 +238,17 @@ def create_supplier(
     return RedirectResponse("/suppliers", status_code=303)
 
 
+@app.post("/suppliers/quick-create")
+def quick_create_supplier(name: str = Form(...), session: Session = Depends(get_session)):
+    """Same as create_supplier, but returns JSON - used by the supplier
+    search-select's "+" button on Quote Entry."""
+    if not name.strip():
+        raise HTTPException(400, "Supplier name is required")
+    supplier, created = get_or_create_supplier(session, name)
+    session.commit()
+    return {"id": supplier.id, "name": supplier.name, "existed": not created}
+
+
 @app.get("/suppliers/{supplier_id}", response_class=HTMLResponse)
 def supplier_detail(supplier_id: int, request: Request, session: Session = Depends(get_session)):
     supplier = session.get(Supplier, supplier_id)
@@ -618,151 +629,112 @@ async def save_item_quantities(tender_id: int, request: Request, session: Sessio
     return RedirectResponse(f"/tenders/{tender_id}#items", status_code=303)
 
 
-def _ensure_full_grid(session: Session, tender_id: int) -> None:
-    """Backfill a blank (NQ) Quote row for every (item, supplier) pair that
-    doesn't have one yet, so the grid view (tender_detail.html) stays
-    rectangular regardless of which entry path (grid vs quote-entry) added
-    data. Doesn't affect cs_engine's calculations either way - a missing
-    row and a rate=None row are equivalent there."""
-    items = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
-    if not items:
-        return
-    item_ids = [i.id for i in items]
-    quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all()
-    supplier_ids = {q.supplier_id for q in quotes}
-    existing_pairs = {(q.item_id, q.supplier_id) for q in quotes}
-    for item in items:
-        for supplier_id in supplier_ids:
-            if (item.id, supplier_id) not in existing_pairs:
-                session.add(Quote(item_id=item.id, supplier_id=supplier_id, rate=None))
-
-
 # ---------------------------------------------------------------------------
-# Guided quotation entry: one supplier's price for one item at a time
+# Quotation entry: pick a supplier, enter their rate against every item
+# already on this RFQ (the item list itself is fixed here - add/edit/
+# delete items happens on the RFQ page, not here)
 # ---------------------------------------------------------------------------
 
 
 @app.get("/tenders/{tender_id}/quote-entry", response_class=HTMLResponse)
-def quote_entry_form(tender_id: int, request: Request, session: Session = Depends(get_session)):
+def quote_entry_form(
+    tender_id: int, request: Request, supplier_id: str = "", session: Session = Depends(get_session)
+):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
-    catalog_items = session.exec(select(ItemMaster)).all()
-    catalog_items.sort(key=lambda im: (im.part_no, im.description))
+    items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
+    item_ids = [i.id for i in items]
 
-    lines = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
-    qty_by_item_master = {line.item_master_id: line.qty for line in lines}
-    lines_by_id = {line.id: line for line in lines}
+    all_suppliers = session.exec(select(Supplier).order_by(Supplier.name)).all()
+    supplier_names_json = _json_for_script([{"id": s.id, "label": s.name} for s in all_suppliers])
 
-    all_supplier_names = [
-        s.name for s in session.exec(select(Supplier).order_by(Supplier.name)).all()
-    ]
-    suppliers_by_id = {s.id: s for s in session.exec(select(Supplier)).all()}
+    selected_supplier = None
+    if supplier_id.strip():
+        try:
+            selected_supplier = session.get(Supplier, int(supplier_id))
+        except ValueError:
+            selected_supplier = None
 
-    line_ids = list(lines_by_id.keys())
-    quotes = (
-        session.exec(select(Quote).where(Quote.item_id.in_(line_ids))).all() if line_ids else []
-    )
-    recorded = []
-    for q in quotes:
-        if q.rate is None:
-            continue
-        line = lines_by_id[q.item_id]
-        recorded.append(
-            {
-                "ser": line.ser,
-                "part_no": line.item_master.part_no,
-                "description": line.item_master.description,
-                "supplier_name": suppliers_by_id[q.supplier_id].name,
-                "qty": line.qty,
-                "rate": q.rate,
-                "total": line.qty * q.rate,
-            }
-        )
-    recorded.sort(key=lambda r: (r["ser"], r["supplier_name"]))
+    rate_map = {}
+    if selected_supplier is not None and item_ids:
+        quotes = session.exec(
+            select(Quote).where(Quote.item_id.in_(item_ids), Quote.supplier_id == selected_supplier.id)
+        ).all()
+        rate_map = {q.item_id: q.rate for q in quotes}
 
-    catalog_items_json = _json_for_script(
-        [
-            {
-                "id": im.id,
-                "label": f"{im.part_no} - {im.description}",
-                "unit": im.default_unit,
-                "qty": qty_by_item_master.get(im.id, ""),
-            }
-            for im in catalog_items
-        ]
-    )
-    supplier_names_json = _json_for_script([{"id": n, "label": n} for n in all_supplier_names])
+    # Cross-check grid: every supplier who has quoted anything on this RFQ,
+    # with the lowest rate per item highlighted - same idea as the old
+    # tender_detail.html grid, now living here instead since this is where
+    # pricing actually belongs.
+    cs = build_comparative_statement(session, tender_id)
+    quoting_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
+    all_quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
+    full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in all_quotes}
+    lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in cs.item_results}
 
     return templates.TemplateResponse(
         request,
         "quote_entry.html",
         {
             "tender": tender,
-            "catalog_items_json": catalog_items_json,
+            "items": items,
             "supplier_names_json": supplier_names_json,
-            "recorded": recorded,
+            "selected_supplier": selected_supplier,
+            "rate_map": rate_map,
+            "quoting_suppliers": quoting_suppliers,
+            "full_rate_matrix": full_rate_matrix,
+            "lowest_by_item_id": lowest_by_item_id,
         },
     )
 
 
 @app.post("/tenders/{tender_id}/quote-entry")
-def submit_quote_entry(
-    tender_id: int,
-    item_master_id: str = Form(...),
-    qty: str = Form(...),
-    supplier_name: str = Form(...),
-    rate: str = Form(...),
-    session: Session = Depends(get_session),
-):
+async def submit_quote_entry(tender_id: int, request: Request, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
+    form = await request.form()
     try:
-        item_master_id_val = int(item_master_id)
-        qty_val = float(qty)
-        rate_val = float(rate)
-    except ValueError:
-        raise HTTPException(400, "Item/Qty/Rate must be valid")
-
-    item_master = session.get(ItemMaster, item_master_id_val)
-    if item_master is None:
-        raise HTTPException(400, "Unknown catalog item")
-    if not supplier_name.strip():
+        supplier_id = int(form.get("supplier_id", ""))
+    except (TypeError, ValueError):
         raise HTTPException(400, "Supplier is required")
+    supplier = session.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
 
-    existing_lines = session.exec(select(Item).where(Item.tender_id == tender_id)).all()
-    line = next((i for i in existing_lines if i.item_master_id == item_master_id_val), None)
-    if line is None:
-        next_ser = (max((i.ser for i in existing_lines), default=0)) + 1
-        lpr_val = get_last_purchase_rate(session, item_master_id_val, exclude_tender_id=tender_id)
-        line = Item(
-            tender_id=tender_id, item_master_id=item_master_id_val, ser=next_ser, qty=qty_val, lpr=lpr_val
-        )
-        session.add(line)
-        session.flush()
-    else:
-        line.qty = qty_val
-        session.add(line)
+    for key, value in form.multi_items():
+        if not key.startswith("rate__"):
+            continue
+        _, item_id_str = key.split("__")
+        item_id = int(item_id_str)
+        item = session.get(Item, item_id)
+        if item is None or item.tender_id != tender_id:
+            continue
 
-    supplier, _ = get_or_create_supplier(session, supplier_name)
+        text = str(value).strip()
+        if text == "" or text.upper() == "NQ":
+            rate = None
+        else:
+            try:
+                rate = float(text)
+            except ValueError:
+                raise HTTPException(400, f"Invalid rate '{text}' for item {item_id}")
 
-    quote = session.exec(
-        select(Quote).where(Quote.item_id == line.id, Quote.supplier_id == supplier.id)
-    ).first()
-    if quote is None:
-        session.add(Quote(item_id=line.id, supplier_id=supplier.id, rate=rate_val))
-    else:
-        quote.rate = rate_val
-        session.add(quote)
-
-    session.flush()
-    _ensure_full_grid(session, tender_id)
+        quote = session.exec(
+            select(Quote).where(Quote.item_id == item_id, Quote.supplier_id == supplier_id)
+        ).first()
+        if quote is None:
+            if rate is not None:
+                session.add(Quote(item_id=item_id, supplier_id=supplier_id, rate=rate))
+        else:
+            quote.rate = rate
+            session.add(quote)
 
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}/quote-entry", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}/quote-entry?supplier_id={supplier_id}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
