@@ -5,8 +5,8 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.cs_engine import build_comparative_statement
-from app.excel_io import import_tender
-from app.models import Supplier
+from app.excel_io import get_or_create_item_master, get_or_create_supplier, import_tender
+from app.models import Item, Quote, Supplier
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
 
@@ -81,3 +81,105 @@ def test_specific_item_lowest_bidder():
         assert winner.name == "M/s SNS Enterprises"
         assert result.lowest_rate == 350
         assert result.total_value == pytest.approx(35 * 350)
+
+
+def _make_tender_with_items_and_quotes(session, tender_id, rates_by_item_and_supplier, qty=1):
+    """rates_by_item_and_supplier: {item_ser: {supplier_name: rate_or_None}}."""
+    from app.models import Tender, TenderStatus
+
+    tender = Tender(id=tender_id, inquiry_no=f"T{tender_id}", status=TenderStatus.draft)
+    session.add(tender)
+    session.flush()
+
+    supplier_ids = {}
+    for ser, rates in rates_by_item_and_supplier.items():
+        im = get_or_create_item_master(session, f"P-{ser}", f"Item {ser}", "Nos")[0]
+        item = Item(tender_id=tender.id, item_master_id=im.id, ser=ser, qty=qty)
+        session.add(item)
+        session.flush()
+        for supplier_name, rate in rates.items():
+            if supplier_name not in supplier_ids:
+                supplier_ids[supplier_name] = get_or_create_supplier(session, supplier_name)[0].id
+            session.add(Quote(item_id=item.id, supplier_id=supplier_ids[supplier_name], rate=rate))
+    session.commit()
+    return tender
+
+
+def test_package_total_can_favour_a_supplier_that_wins_fewer_items():
+    """Supplier A is individually cheapest on 3/5 items, Supplier B on the
+    other 2 - but B's total across all 5 items is lower than A's total.
+    Package mode must rank B above A despite A winning more line items."""
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Supplier A": 100, "Supplier B": 110},
+                2: {"Supplier A": 100, "Supplier B": 110},
+                3: {"Supplier A": 100, "Supplier B": 110},
+                4: {"Supplier A": 100, "Supplier B": 40},
+                5: {"Supplier A": 100, "Supplier B": 40},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+
+        # Item-wise: A wins 3 items, B wins 2.
+        winners = [r.item.ser for r in cs.item_results if r.lowest_supplier_id is not None]
+        a_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier A")
+        b_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier B")
+        a_wins = sum(1 for r in cs.item_results if r.lowest_supplier_id == a_id)
+        b_wins = sum(1 for r in cs.item_results if r.lowest_supplier_id == b_id)
+        assert a_wins == 3
+        assert b_wins == 2
+
+        # Package totals: A = 500, B = 410 - B is cheaper overall despite
+        # winning fewer individual items.
+        totals_by_name = {p.supplier_name: p for p in cs.package_totals}
+        assert totals_by_name["Supplier A"].store_value == pytest.approx(500)
+        assert totals_by_name["Supplier B"].store_value == pytest.approx(410)
+        assert totals_by_name["Supplier A"].fully_quoted is True
+        assert totals_by_name["Supplier B"].fully_quoted is True
+
+        # Ranked cheapest-first among fully-quoting suppliers.
+        assert [p.supplier_name for p in cs.package_totals] == ["Supplier B", "Supplier A"]
+
+
+def test_partial_quoter_is_ranked_last_and_flagged_not_fully_quoted():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Full Quoter": 10, "Partial Quoter": 1},
+                2: {"Full Quoter": 10, "Partial Quoter": 1},
+                3: {"Full Quoter": 10},  # Partial Quoter didn't quote this one
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+
+        totals_by_name = {p.supplier_name: p for p in cs.package_totals}
+        assert totals_by_name["Full Quoter"].fully_quoted is True
+        assert totals_by_name["Full Quoter"].quoted_item_count == 3
+        assert totals_by_name["Partial Quoter"].fully_quoted is False
+        assert totals_by_name["Partial Quoter"].quoted_item_count == 2
+        assert totals_by_name["Partial Quoter"].store_value == pytest.approx(2)
+
+        # Partial Quoter's total (2) is far cheaper than Full Quoter's (30),
+        # but a partial quoter still can't rank above a full quoter.
+        assert [p.supplier_name for p in cs.package_totals] == ["Full Quoter", "Partial Quoter"]
+
+
+def test_package_total_includes_tax():
+    with _fresh_session() as session:
+        tender = _make_tender_with_items_and_quotes(
+            session, 1, {1: {"Only Supplier": 200}, 2: {"Only Supplier": 300}}
+        )
+        tender.tax_percent = 10
+        session.add(tender)
+        session.commit()
+
+        cs = build_comparative_statement(session, 1)
+        pkg = cs.package_totals[0]
+        assert pkg.store_value == pytest.approx(500)
+        assert pkg.tax_amount == pytest.approx(50)
+        assert pkg.contract_value == pytest.approx(550)

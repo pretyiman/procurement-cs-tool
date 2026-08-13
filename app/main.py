@@ -21,6 +21,7 @@ from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .excel_io import (
     export_cs_xlsx,
+    export_package_cs_xlsx,
     export_purchase_proposal_xlsx,
     get_or_create_department,
     get_or_create_item_master,
@@ -520,6 +521,21 @@ def export_cs(tender_id: int, session: Session = Depends(get_session)):
     )
 
 
+@app.get("/tenders/{tender_id}/export-package")
+def export_package_cs(tender_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    cs = build_comparative_statement(session, tender_id)
+    content = export_package_cs_xlsx(cs)
+    filename = f"comparative-statement-package-tender-{tender_id}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/tenders/{tender_id}/items")
 def add_item(
     tender_id: int,
@@ -638,7 +654,11 @@ async def save_item_quantities(tender_id: int, request: Request, session: Sessio
 
 @app.get("/tenders/{tender_id}/quote-entry", response_class=HTMLResponse)
 def quote_entry_form(
-    tender_id: int, request: Request, supplier_id: str = "", session: Session = Depends(get_session)
+    tender_id: int,
+    request: Request,
+    supplier_id: str = "",
+    view: str = "item",
+    session: Session = Depends(get_session),
 ):
     tender = session.get(Tender, tender_id)
     if tender is None:
@@ -686,6 +706,8 @@ def quote_entry_form(
             "quoting_suppliers": quoting_suppliers,
             "full_rate_matrix": full_rate_matrix,
             "lowest_by_item_id": lowest_by_item_id,
+            "view": "package" if view == "package" else "item",
+            "package_totals": cs.package_totals,
         },
     )
 

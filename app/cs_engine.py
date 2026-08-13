@@ -43,12 +43,31 @@ class GrandTotal:
 
 
 @dataclass
+class PackageTotal:
+    """One supplier's total if they were awarded the entire item list as a
+    single package, rather than item-by-item. Only a supplier who quoted
+    every item can actually fulfill "the whole package" - fully_quoted
+    marks that; a partial quoter is still reported (for transparency) but
+    isn't a valid package candidate."""
+
+    supplier_id: int
+    supplier_name: str
+    quoted_item_count: int
+    total_item_count: int
+    fully_quoted: bool
+    store_value: float
+    tax_amount: float
+    contract_value: float
+
+
+@dataclass
 class ComparativeStatement:
     tender: Tender
     item_results: List[ItemResult]
     firm_summaries: List[FirmSummary]
     grand_total: GrandTotal
     suppliers_by_id: Dict[int, Supplier]
+    package_totals: List[PackageTotal]
 
 
 def compute_item_result(item: Item, quotes: List[Quote]) -> ItemResult:
@@ -117,6 +136,50 @@ def compute_grand_total(firm_summaries: List[FirmSummary]) -> GrandTotal:
     )
 
 
+def compute_package_totals(
+    items: List[Item],
+    quotes_by_item: Dict[int, List[Quote]],
+    suppliers_by_id: Dict[int, Supplier],
+    tax_percent: float,
+) -> List[PackageTotal]:
+    """Each supplier's total if awarded every item as one package, instead
+    of item-by-item. Ranked cheapest-first among suppliers who quoted every
+    item (fully_quoted=True) - a partial quoter is listed but sorted after,
+    since they can't actually fulfill the whole package."""
+    total_item_count = len(items)
+    supplier_ids = {q.supplier_id for quotes in quotes_by_item.values() for q in quotes if q.rate is not None}
+
+    results = []
+    for sid in supplier_ids:
+        store_value = 0.0
+        quoted_item_count = 0
+        for item in items:
+            quote = next(
+                (q for q in quotes_by_item.get(item.id, []) if q.supplier_id == sid and q.rate is not None),
+                None,
+            )
+            if quote is not None:
+                store_value += item.qty * quote.rate
+                quoted_item_count += 1
+
+        tax_amount = store_value * tax_percent / 100
+        results.append(
+            PackageTotal(
+                supplier_id=sid,
+                supplier_name=suppliers_by_id[sid].name,
+                quoted_item_count=quoted_item_count,
+                total_item_count=total_item_count,
+                fully_quoted=quoted_item_count == total_item_count,
+                store_value=store_value,
+                tax_amount=tax_amount,
+                contract_value=store_value + tax_amount,
+            )
+        )
+
+    results.sort(key=lambda r: (not r.fully_quoted, r.contract_value))
+    return results
+
+
 def build_comparative_statement(session: Session, tender_id: int) -> ComparativeStatement:
     tender = session.get(Tender, tender_id)
     if tender is None:
@@ -149,6 +212,7 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
     item_results = [compute_item_result(item, quotes_by_item.get(item.id, [])) for item in items]
     firm_summaries = compute_firm_summaries(item_results, suppliers_by_id, tender.tax_percent)
     grand_total = compute_grand_total(firm_summaries)
+    package_totals = compute_package_totals(items, quotes_by_item, suppliers_by_id, tender.tax_percent)
 
     return ComparativeStatement(
         tender=tender,
@@ -156,4 +220,5 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
         firm_summaries=firm_summaries,
         grand_total=grand_total,
         suppliers_by_id=suppliers_by_id,
+        package_totals=package_totals,
     )

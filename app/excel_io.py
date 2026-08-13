@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
 
@@ -392,6 +392,142 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     ws.column_dimensions[get_column_letter(lowest_col + 2)].width = 13
     ws.column_dimensions[get_column_letter(lpr_col)].width = 11
     ws.column_dimensions[get_column_letter(incdec_col)].width = 10
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def export_package_cs_xlsx(cs: "ComparativeStatement") -> bytes:
+    """Render the package-basis comparison: same item list and raw rate
+    grid as export_cs_xlsx, but instead of picking the lowest rate per
+    item, ranks each supplier's TOTAL across every item (cs.package_totals)
+    - the whole-package-to-one-firm alternative to item-by-item awarding.
+    Only a supplier who quoted every item is a real package candidate;
+    others are listed but not eligible."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Package Comparison"
+    bold = Font(bold=True)
+    header_align = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    lowest_fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+
+    suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
+    n = len(suppliers)
+    rate_start_col = 6  # after Ser/Part No/Description/A-U/Qty
+    last_col = max(rate_start_col + n - 1, 6)
+
+    banner_align = Alignment(horizontal="center", vertical="center")
+    banner_font = Font(bold=True, size=10)
+
+    title_cell = ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT (PACKAGE BASIS)")
+    title_cell.font = banner_font
+    title_cell.alignment = banner_align
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+
+    inquiry_cell = ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+    inquiry_cell.font = banner_font
+    inquiry_cell.alignment = banner_align
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+
+    header_row = 3
+    for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "A/U"), (5, "Qty")]:
+        cell = ws.cell(row=header_row, column=col, value=label)
+        cell.font = bold
+        cell.alignment = header_align
+    ws.cell(
+        row=header_row,
+        column=rate_start_col,
+        value=f"Rate Quoted by Firms Excl {cs.tender.tax_percent:g}% {cs.tender.tax_type.value}",
+    ).font = bold
+    ws.cell(row=header_row, column=rate_start_col).alignment = header_align
+    if n > 1:
+        ws.merge_cells(start_row=header_row, start_column=rate_start_col, end_row=header_row, end_column=last_col)
+
+    subheader_row = header_row + 1
+    for i, supplier in enumerate(suppliers):
+        cell = ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+        cell.font = bold
+        cell.alignment = header_align
+
+    row = subheader_row + 1
+    for r in cs.item_results:
+        item = r.item
+        ws.cell(row=row, column=1, value=item.ser)
+        ws.cell(row=row, column=2, value=item.item_master.part_no)
+        ws.cell(row=row, column=3, value=item.item_master.description)
+        ws.cell(row=row, column=4, value=item.item_master.default_unit)
+        ws.cell(row=row, column=5, value=item.qty)
+        for i, supplier in enumerate(suppliers):
+            rate = next((q.rate for q in item.quotes if q.supplier_id == supplier.id), None)
+            ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+        row += 1
+
+    row += 2
+    tax_label = cs.tender.tax_type.value
+    heading_cell = ws.cell(row=row, column=1, value="PACKAGE TOTALS - if the entire item list were awarded to one firm")
+    heading_cell.font = bold
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
+    row += 1
+
+    ws.cell(row=row, column=1, value="Firm").font = bold
+    ws.cell(row=row, column=3, value="Items Quoted").font = bold
+    ws.cell(row=row, column=4, value="Store Value").font = bold
+    ws.cell(row=row, column=5, value=tax_label).font = bold
+    ws.cell(row=row, column=6, value="Contract Value").font = bold
+    ws.cell(row=row, column=7, value="Eligible").font = bold
+    row += 1
+
+    lowest_eligible_marked = False
+    for p in cs.package_totals:
+        name_cell = ws.cell(row=row, column=1, value=p.supplier_name)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        ws.cell(row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
+        ws.cell(row=row, column=4, value=p.store_value)
+        ws.cell(row=row, column=5, value=p.tax_amount)
+        ws.cell(row=row, column=6, value=p.contract_value)
+        ws.cell(row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
+        if p.fully_quoted and not lowest_eligible_marked:
+            for c in range(1, 8):
+                ws.cell(row=row, column=c).fill = lowest_fill
+            name_cell.font = bold
+            lowest_eligible_marked = True
+        row += 1
+
+    # Signature/approval block, same convention as export_cs_xlsx.
+    def _sig_slot(line_row: int, col_start: int, col_end: int, label: str, halign: str) -> None:
+        bottom_border = Border(bottom=Side(style="thin"))
+        for c in range(col_start, col_end + 1):
+            ws.cell(row=line_row, column=c).border = bottom_border
+        if col_end > col_start:
+            ws.merge_cells(start_row=line_row, start_column=col_start, end_row=line_row, end_column=col_end)
+        label_cell = ws.cell(row=line_row + 1, column=col_start, value=label)
+        label_cell.font = Font(size=9)
+        label_cell.alignment = Alignment(horizontal=halign, vertical="center")
+        if col_end > col_start:
+            ws.merge_cells(start_row=line_row + 1, start_column=col_start, end_row=line_row + 1, end_column=col_end)
+
+    row += 3
+    right_start = max(4, last_col - 2)
+    _sig_slot(row, 1, 3, "Prep By", halign="left")
+    _sig_slot(row, right_start, last_col, "Checked by", halign="right")
+
+    row += 3
+    _sig_slot(row, 1, last_col, "HEAD QAC (TDA)", halign="center")
+
+    row += 3
+    sig_cell = ws.cell(row=row, column=1, value="COUNTERSIGNED")
+    sig_cell.font = Font(bold=True, size=12)
+    sig_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 36
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 8
+    for col in range(rate_start_col, last_col + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
 
     buffer = BytesIO()
     wb.save(buffer)

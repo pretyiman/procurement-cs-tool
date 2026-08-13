@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.cs_engine import build_comparative_statement
-from app.excel_io import export_cs_xlsx, import_tender
+from app.excel_io import export_cs_xlsx, export_package_cs_xlsx, import_tender
 from app.models import Item, ItemMaster, Quote, Supplier, TaxType
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
@@ -159,3 +159,24 @@ def test_pst_tender_computes_and_round_trips_correctly():
         reimported_tender = import_tender(BytesIO(exported_bytes), reimport_session)
         assert reimported_tender.tax_type == TaxType.PST
         assert reimported_tender.tax_percent == pytest.approx(15.0)
+
+
+def test_package_export_opens_and_lists_ranked_supplier_totals():
+    from openpyxl import load_workbook
+
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        cs = build_comparative_statement(session, tender.id)
+        exported_bytes = export_package_cs_xlsx(cs)
+
+    wb = load_workbook(BytesIO(exported_bytes))
+    ws = wb.active
+    assert ws.title == "Package Comparison"
+
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert any("PACKAGE BASIS" in str(v) for v in all_values)
+    assert any("PACKAGE TOTALS" in str(v) for v in all_values)
+    # Every supplier from the comparative statement should appear somewhere
+    # in the package totals section, ranked/eligible-flagged.
+    for supplier in cs.suppliers_by_id.values():
+        assert supplier.name in all_values
