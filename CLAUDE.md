@@ -76,6 +76,16 @@ app/
                                            # row (security deposit/stamp duty %),
                                            # editable at /settings/business-rules
                                            # instead of hardcoded in docx_export.py
+  template_manager.py                       # Settings > Document Templates:
+                                             # download/upload/restore pp_template.docx
+                                             # and ca_template.docx from the browser,
+                                             # validated by rendering against
+                                             # synthetic sample data before accepting.
+                                             # Uploads land in paths.
+                                             # custom_docx_templates_dir() (under
+                                             # user_data_dir(), NOT resource_path() -
+                                             # the latter is sys._MEIPASS when frozen,
+                                             # wiped every launch)
   docx_templates/
     ca_template.docx                      # Contract Award - built by surgically
                                            # editing the user's real CA.doc (see
@@ -94,6 +104,8 @@ app/
     departments.html                 # "/departments" — catalog list/search/create
     business_rules.html                # "/settings/business-rules" — deposit/
                                         # stamp-duty % used in Contract Award docs
+    document_templates.html              # "/settings/templates" — download/upload/
+                                          # restore PP/CA docx templates
     tenders_list.html                # "/tenders" — list/create/import
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt

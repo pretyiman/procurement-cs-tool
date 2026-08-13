@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Document Templates - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Document Templates</h1>
+<p class="muted">
+  <a href="/settings/business-rules">Business Rules</a> &middot; <strong>Document Templates</strong>
+</p>
+<p class="muted">Download the current Contract Award / Purchase Proposal template, edit it in Word (wording, clauses, signature block - anything that isn't a per-contract number), and upload it back. No filesystem access needed.</p>
+
+{% if error %}
+<div class="card" style="background:#fdecea;border-color:#f1a9a0"><strong>Couldn't use that file.</strong> {{ error }}</div>
+{% endif %}
+{% if saved %}
+<div class="card notice-exists"><strong>Saved.</strong> New documents will use the updated template.</div>
+{% endif %}
+
+{% for row in rows %}
+<div class="card">
+  <h2 style="margin-top:0">{{ row.label }} <span class="muted" style="font-weight:normal;font-size:0.85rem">({{ row.name }})</span></h2>
+  <p class="muted" style="margin-top:0">
+    Currently using:
+    {% if row.is_custom %}<strong>your uploaded version</strong>{% else %}<strong>the default template</strong>{% endif %}
+    &middot; last changed {{ row.modified.strftime('%d %b %Y, %H:%M') }}
+  </p>
+  <p>
+    <a class="btn btn-secondary" href="/settings/templates/{{ row.name }}/download">Download current</a>
+    {% if row.is_custom %}
+    <form method="post" action="/settings/templates/{{ row.name }}/restore-default" style="display:inline"
+          onsubmit="return confirm('Discard your uploaded version and go back to the default template?');">
+      <button type="submit" class="btn-danger" style="padding:0.5rem 1rem">Restore default</button>
+    </form>
+    {% endif %}
+  </p>
+  <form method="post" action="/settings/templates/{{ row.name }}/upload" enctype="multipart/form-data" class="row-form">
+    <div class="field">
+      <label for="file-{{ row.name }}">Upload replacement (.docx)</label>
+      <input type="file" id="file-{{ row.name }}" name="file" accept=".docx" required>
+    </div>
+    <button type="submit">Upload &amp; use</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

@@ -20,6 +20,14 @@ from .db import create_db_and_tables, get_session
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
 from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
+from .template_manager import (
+    TEMPLATE_NAMES,
+    list_templates,
+    read_active_template,
+    restore_default_template,
+    save_custom_template,
+    validate_template,
+)
 from .excel_io import (
     export_cs_xlsx,
     export_department_list_xlsx,
@@ -1133,3 +1141,50 @@ def update_business_rules(
     session.add(rules)
     session.commit()
     return RedirectResponse("/settings/business-rules?saved=1", status_code=303)
+
+
+@app.get("/settings/templates", response_class=HTMLResponse)
+def document_templates_form(request: Request, error: str = "", saved: str = ""):
+    return templates.TemplateResponse(
+        request,
+        "document_templates.html",
+        {"rows": list_templates(), "error": error, "saved": bool(saved)},
+    )
+
+
+@app.get("/settings/templates/{name}/download")
+def download_template(name: str):
+    try:
+        content = read_active_template(name)
+    except (ValueError, FileNotFoundError):
+        raise HTTPException(404, "Unknown template")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.post("/settings/templates/{name}/upload")
+async def upload_template(name: str, file: UploadFile = File(...)):
+    if name not in TEMPLATE_NAMES:
+        raise HTTPException(404, "Unknown template")
+    if not file.filename.lower().endswith(".docx"):
+        return RedirectResponse(
+            f"/settings/templates?error={quote('Please upload a .docx file.')}", status_code=303
+        )
+    content = await file.read()
+    try:
+        validate_template(name, content)
+    except ValueError as e:
+        return RedirectResponse(f"/settings/templates?error={quote(str(e))}", status_code=303)
+    save_custom_template(name, content)
+    return RedirectResponse("/settings/templates?saved=1", status_code=303)
+
+
+@app.post("/settings/templates/{name}/restore-default")
+def restore_template(name: str):
+    if name not in TEMPLATE_NAMES:
+        raise HTTPException(404, "Unknown template")
+    restore_default_template(name)
+    return RedirectResponse("/settings/templates?saved=1", status_code=303)

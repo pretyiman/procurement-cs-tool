@@ -18,10 +18,7 @@ from docxtpl import DocxTemplate
 from .award_engine import ProposalFirmGroup, PurchaseProposal
 from .models import BusinessRules, Supplier, Tender
 from .number_words import amount_in_words, number_to_words, ordinal
-from .paths import resource_path
-
-CA_TEMPLATE_PATH = resource_path("docx_templates", "ca_template.docx")
-PP_TEMPLATE_PATH = resource_path("docx_templates", "pp_template.docx")
+from .paths import docx_template_path
 
 
 def _esc(value) -> str:
@@ -53,6 +50,7 @@ def generate_contract_award(
     rules: BusinessRules,
     contract_date: Optional[datetime.date] = None,
     agreement_date: Optional[datetime.date] = None,
+    template_bytes: Optional[bytes] = None,
 ) -> bytes:
     contract_date = contract_date or datetime.date.today()
     agreement_date = agreement_date or datetime.date.today()
@@ -97,7 +95,9 @@ def generate_contract_award(
         ],
     }
 
-    doc = DocxTemplate(str(CA_TEMPLATE_PATH))
+    doc = DocxTemplate(BytesIO(template_bytes)) if template_bytes is not None else DocxTemplate(
+        str(docx_template_path("ca_template.docx"))
+    )
     doc.render(context)
     buffer = BytesIO()
     doc.save(buffer)
@@ -108,6 +108,7 @@ def generate_purchase_proposal_doc(
     tender: Tender,
     proposal: PurchaseProposal,
     suppliers_by_id: dict,
+    template_bytes: Optional[bytes] = None,
 ) -> bytes:
     est_cost = sum(
         ai.item.qty * ai.item.lpr
@@ -156,7 +157,9 @@ def generate_purchase_proposal_doc(
         "grand_contract_value": _money(proposal.grand_total.contract_value),
     }
 
-    doc = DocxTemplate(str(PP_TEMPLATE_PATH))
+    doc = DocxTemplate(BytesIO(template_bytes)) if template_bytes is not None else DocxTemplate(
+        str(docx_template_path("pp_template.docx"))
+    )
     doc.render(context)
     buffer = BytesIO()
     doc.save(buffer)

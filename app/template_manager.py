@@ -1,0 +1,134 @@
+"""Settings > Document Templates: lets an admin download the current
+pp_template.docx/ca_template.docx, edit it in Word, and upload it back -
+without needing filesystem access to the app's install directory. See
+CLAUDE.md "Frozen tech decisions" (docxtpl) and paths.docx_template_path()
+for why uploads are stored under user_data_dir(), not next to the
+bundled defaults.
+"""
+
+import datetime
+
+from .award_engine import AwardedItem, ProposalFirmGroup, PurchaseProposal
+from .cs_engine import GrandTotal
+from .docx_export import generate_contract_award, generate_purchase_proposal_doc
+from .models import BusinessRules, Department, Item, ItemMaster, Supplier, Tender
+from .paths import custom_docx_templates_dir, docx_template_path
+
+TEMPLATE_NAMES = {
+    "ca_template.docx": "Contract Award",
+    "pp_template.docx": "Purchase Proposal",
+}
+
+
+def _require_known_template(name: str) -> None:
+    """Every route touching a template name takes it from the URL - this
+    is the one allowlist check standing between that and an arbitrary
+    filesystem path, so every call site must go through it."""
+    if name not in TEMPLATE_NAMES:
+        raise ValueError(f"Unknown template {name!r}")
+
+
+def list_templates() -> list:
+    rows = []
+    for name, label in TEMPLATE_NAMES.items():
+        custom_path = custom_docx_templates_dir() / name
+        active_path = docx_template_path(name)
+        is_custom = custom_path.exists()
+        rows.append(
+            {
+                "name": name,
+                "label": label,
+                "is_custom": is_custom,
+                "modified": datetime.datetime.fromtimestamp(active_path.stat().st_mtime),
+            }
+        )
+    return rows
+
+
+def read_active_template(name: str) -> bytes:
+    _require_known_template(name)
+    return docx_template_path(name).read_bytes()
+
+
+def save_custom_template(name: str, content: bytes) -> None:
+    _require_known_template(name)
+    d = custom_docx_templates_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_bytes(content)
+
+
+def restore_default_template(name: str) -> None:
+    _require_known_template(name)
+    custom_path = custom_docx_templates_dir() / name
+    if custom_path.exists():
+        custom_path.unlink()
+
+
+def _dummy_ca_args():
+    department = Department(id=1, name="Sample Department")
+    tender = Tender(
+        id=1,
+        inquiry_no="SAMPLE/2026/001",
+        indent_no="SAMPLE-IND-001",
+        department=department,
+        issue_date=datetime.date.today(),
+        opening_date=datetime.date.today(),
+        delivery_days=60,
+        warranty_months=3,
+        tax_percent=18.0,
+    )
+    item_master = ItemMaster(id=1, part_no="X-1", description="Sample Item", default_unit="Nos")
+    item = Item(id=1, tender_id=1, item_master_id=1, ser=1, qty=10, item_master=item_master)
+    awarded_item = AwardedItem(
+        item=item,
+        awarded_supplier_id=1,
+        awarded_rate=100.0,
+        total_value=1000.0,
+        is_override=False,
+        override_reason=None,
+        invalid_override=False,
+    )
+    group = ProposalFirmGroup(
+        supplier_id=1,
+        supplier_name="M/s Sample Firm",
+        items=[awarded_item],
+        store_value=1000.0,
+        tax_amount=180.0,
+        contract_value=1180.0,
+    )
+    supplier = Supplier(id=1, name="M/s Sample Firm", address="Sample Address")
+    rules = BusinessRules()
+    return tender, group, supplier, rules
+
+
+def _dummy_pp_args():
+    tender, group, _supplier, _rules = _dummy_ca_args()
+    proposal = PurchaseProposal(
+        tender=tender,
+        firm_groups=[group],
+        unresolved_items=[],
+        grand_total=GrandTotal(item_count=1, store_value=1000.0, tax_amount=180.0, contract_value=1180.0),
+    )
+    suppliers_by_id = {1: Supplier(id=1, name="M/s Sample Firm", address="Sample Address")}
+    return tender, proposal, suppliers_by_id
+
+
+def validate_template(name: str, content: bytes) -> None:
+    """Renders the uploaded template against synthetic sample data - the
+    exact same generate_* functions used for real documents, so this stays
+    in sync automatically if the context they build ever changes. Raises
+    ValueError with a human-readable message on any failure (corrupt
+    file, broken {{ }}/{%tr %} tag, etc.) instead of letting an admin
+    silently break every future Contract Award / Purchase Proposal."""
+    _require_known_template(name)
+    try:
+        if name == "ca_template.docx":
+            tender, group, supplier, rules = _dummy_ca_args()
+            generate_contract_award(
+                tender, group, supplier, contract_no="SAMPLE-001", rules=rules, template_bytes=content
+            )
+        else:
+            tender, proposal, suppliers_by_id = _dummy_pp_args()
+            generate_purchase_proposal_doc(tender, proposal, suppliers_by_id, template_bytes=content)
+    except Exception as e:  # noqa: BLE001 - surfaced verbatim to the admin, any failure reason is relevant
+        raise ValueError(f"Could not use this file as a {TEMPLATE_NAMES[name]} template: {e}") from e
