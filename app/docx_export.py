@@ -55,12 +55,17 @@ def generate_contract_award(
     contract_date = contract_date or datetime.date.today()
     agreement_date = agreement_date or datetime.date.today()
 
+    # Both security deposit (bank guarantee) and stamp duty are calculated
+    # on store value (the quoted price excl. GST/PST) - not contract value
+    # (incl. tax). Only the waiver threshold check uses contract value,
+    # since that's the figure procurement staff actually compare against
+    # a Rs threshold ("is this contract worth more/less than X").
     store_value = group.store_value
     if group.contract_value < rules.security_deposit_waived_below:
         security_deposit = 0.0
     else:
         security_deposit = store_value * rules.security_deposit_percent / 100
-    stamp_duty = group.contract_value * rules.stamp_duty_percent / 100
+    stamp_duty = store_value * rules.stamp_duty_percent / 100
 
     context = {
         "firm_name": _esc(group.supplier_name),

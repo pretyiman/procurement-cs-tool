@@ -119,9 +119,10 @@ def test_contract_award_amount_in_words_and_computed_fees():
 
         # Matches the real sample CA.doc's amount-in-words for this exact firm/value.
         assert "Pak Rupees Two Hundred Forty Nine Thousand One Hundred Thirty Eight and Paisa Twelve Only" in full_text
-        # Security deposit = 5% of store value; stamp duty = 0.25% of contract value.
+        # Both security deposit and stamp duty are on store value (excl.
+        # tax), not contract value (incl. tax) - see docx_export.py.
         assert f"{group.store_value * 0.05:,.2f}" in full_text
-        assert f"{group.contract_value * 0.0025:,.2f}" in full_text
+        assert f"{group.store_value * 0.0025:,.2f}" in full_text
 
 
 def test_security_deposit_waived_below_configured_threshold():
@@ -146,6 +147,36 @@ def test_security_deposit_waived_below_configured_threshold():
         content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-APPLIES", rules=applies_rules)
         full_text = _full_text(Document(BytesIO(content)))
         assert f"{group.store_value * 0.05:,.2f}" in full_text
+
+
+def test_stamp_duty_and_security_deposit_are_both_based_on_store_value():
+    """Procurement rule: stamp duty and the security deposit (bank
+    guarantee) are both calculated on store value (quoted price excl.
+    GST/PST), never on contract value (incl. tax) - even though store_value
+    != contract_value whenever tax_percent > 0, so this fixture (18% GST)
+    would silently pass a contract-value-based calculation too if it
+    matched by coincidence. Assert the store-value figure is present AND
+    the contract-value figure is absent, so a regression can't slip by."""
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        assert tender.tax_percent > 0  # otherwise this test can't distinguish the two bases
+        proposal = build_purchase_proposal(session, tender.id)
+        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        supplier = session.get(Supplier, group.supplier_id)
+        assert group.store_value != group.contract_value
+
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
+        full_text = _full_text(Document(BytesIO(content)))
+
+        store_based_deposit = f"{group.store_value * 0.05:,.2f}"
+        store_based_stamp_duty = f"{group.store_value * 0.0025:,.2f}"
+        contract_based_deposit = f"{group.contract_value * 0.05:,.2f}"
+        contract_based_stamp_duty = f"{group.contract_value * 0.0025:,.2f}"
+
+        assert store_based_deposit in full_text
+        assert store_based_stamp_duty in full_text
+        assert contract_based_deposit not in full_text
+        assert contract_based_stamp_duty not in full_text
 
 
 def test_ampersand_in_firm_name_survives_rendering():
