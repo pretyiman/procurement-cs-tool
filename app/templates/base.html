@@ -100,6 +100,7 @@
     .btn-secondary { background: #5f6b7a; }
     .totals-row { font-weight: 700; background: #eef1f5; }
     .empty { color: var(--muted); font-style: italic; padding: 1rem 0; }
+    .notice-exists { background: #fff8e1; border-color: #f0c674; }
     .breadcrumb { font-size: 0.85rem; margin-bottom: 0.5rem; }
     .breadcrumb a { color: var(--accent); text-decoration: none; }
     .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
@@ -319,7 +320,14 @@
               return resp.json();
             }).then(function (data) {
               var item = opts.buildCreatedItem ? opts.buildCreatedItem(data) : { id: data.id, label: data.name };
-              items.push(item);
+              if (data.existed) {
+                var existing = items.filter(function (it) { return it.id === item.id; })[0];
+                if (existing) item = existing;
+                else items.push(item);
+                alert('"' + item.label + '" already existed - using the existing entry instead of creating a duplicate.');
+              } else {
+                items.push(item);
+              }
               select(item);
               closeCreatePanel();
             }).catch(function () {

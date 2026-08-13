@@ -6,6 +6,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -95,7 +96,9 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
 
 
 @app.get("/items", response_class=HTMLResponse)
-def items_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+def items_catalog(
+    request: Request, q: str = "", notice: str = "", name: str = "", session: Session = Depends(get_session)
+):
     catalog = session.exec(select(ItemMaster)).all()
     if q.strip():
         needle = q.strip().lower()
@@ -103,7 +106,9 @@ def items_catalog(request: Request, q: str = "", session: Session = Depends(get_
             im for im in catalog if needle in im.part_no.lower() or needle in im.description.lower()
         ]
     catalog.sort(key=lambda im: (im.part_no, im.description))
-    return templates.TemplateResponse(request, "items.html", {"items": catalog, "q": q})
+    return templates.TemplateResponse(
+        request, "items.html", {"items": catalog, "q": q, "notice": notice, "notice_name": name}
+    )
 
 
 @app.post("/items")
@@ -115,8 +120,11 @@ def create_item(
 ):
     if not description.strip():
         raise HTTPException(400, "Description is required")
-    get_or_create_item_master(session, part_no, description, default_unit)
+    item_master, created = get_or_create_item_master(session, part_no, description, default_unit)
     session.commit()
+    if not created:
+        label = f"{item_master.part_no} - {item_master.description}" if item_master.part_no else item_master.description
+        return RedirectResponse(f"/items?notice=exists&name={quote(label)}", status_code=303)
     return RedirectResponse("/items", status_code=303)
 
 
@@ -132,10 +140,11 @@ def quick_create_item(
     filling out an RFQ/quote form doesn't lose its state to a navigation."""
     if not description.strip():
         raise HTTPException(400, "Description is required")
-    item_master = get_or_create_item_master(session, part_no, description, default_unit)
+    item_master, created = get_or_create_item_master(session, part_no, description, default_unit)
     session.commit()
     return {
         "id": item_master.id,
+        "existed": not created,
         "part_no": item_master.part_no,
         "description": item_master.description,
         "unit": item_master.default_unit,
@@ -148,20 +157,26 @@ def quick_create_item(
 
 
 @app.get("/departments", response_class=HTMLResponse)
-def departments_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+def departments_catalog(
+    request: Request, q: str = "", notice: str = "", name: str = "", session: Session = Depends(get_session)
+):
     departments = session.exec(select(Department).order_by(Department.name)).all()
     if q.strip():
         needle = q.strip().lower()
         departments = [d for d in departments if needle in d.name.lower()]
-    return templates.TemplateResponse(request, "departments.html", {"departments": departments, "q": q})
+    return templates.TemplateResponse(
+        request, "departments.html", {"departments": departments, "q": q, "notice": notice, "notice_name": name}
+    )
 
 
 @app.post("/departments")
 def create_department(name: str = Form(...), session: Session = Depends(get_session)):
     if not name.strip():
         raise HTTPException(400, "Name is required")
-    get_or_create_department(session, name)
+    department, created = get_or_create_department(session, name)
     session.commit()
+    if not created:
+        return RedirectResponse(f"/departments?notice=exists&name={quote(department.name)}", status_code=303)
     return RedirectResponse("/departments", status_code=303)
 
 
@@ -171,9 +186,9 @@ def quick_create_department(name: str = Form(...), session: Session = Depends(ge
     search-select's "+" button so the RFQ form doesn't lose its state."""
     if not name.strip():
         raise HTTPException(400, "Name is required")
-    department = get_or_create_department(session, name)
+    department, created = get_or_create_department(session, name)
     session.commit()
-    return {"id": department.id, "name": department.name}
+    return {"id": department.id, "name": department.name, "existed": not created}
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +197,16 @@ def quick_create_department(name: str = Form(...), session: Session = Depends(ge
 
 
 @app.get("/suppliers", response_class=HTMLResponse)
-def suppliers_catalog(request: Request, q: str = "", session: Session = Depends(get_session)):
+def suppliers_catalog(
+    request: Request, q: str = "", notice: str = "", name: str = "", session: Session = Depends(get_session)
+):
     suppliers = session.exec(select(Supplier).order_by(Supplier.name)).all()
     if q.strip():
         needle = q.strip().lower()
         suppliers = [s for s in suppliers if needle in s.name.lower()]
-    return templates.TemplateResponse(request, "suppliers.html", {"suppliers": suppliers, "q": q})
+    return templates.TemplateResponse(
+        request, "suppliers.html", {"suppliers": suppliers, "q": q, "notice": notice, "notice_name": name}
+    )
 
 
 @app.post("/suppliers")
@@ -202,7 +221,7 @@ def create_supplier(
 ):
     if not name.strip():
         raise HTTPException(400, "Supplier name is required")
-    supplier = get_or_create_supplier(session, name)
+    supplier, created = get_or_create_supplier(session, name)
     for field, value in (
         ("address", address),
         ("contact_person", contact_person),
@@ -214,6 +233,8 @@ def create_supplier(
             setattr(supplier, field, value.strip())
     session.add(supplier)
     session.commit()
+    if not created:
+        return RedirectResponse(f"/suppliers?notice=exists&name={quote(supplier.name)}", status_code=303)
     return RedirectResponse("/suppliers", status_code=303)
 
 
@@ -726,7 +747,7 @@ def submit_quote_entry(
         line.qty = qty_val
         session.add(line)
 
-    supplier = get_or_create_supplier(session, supplier_name)
+    supplier, _ = get_or_create_supplier(session, supplier_name)
 
     quote = session.exec(
         select(Quote).where(Quote.item_id == line.id, Quote.supplier_id == supplier.id)

@@ -25,7 +25,7 @@ def _make_awarded_tender(session, item_master_id, rate, supplier_name="Acme", aw
     session.add(item)
     session.flush()
 
-    supplier = get_or_create_supplier(session, supplier_name)
+    supplier = get_or_create_supplier(session, supplier_name)[0]
     session.add(Quote(item_id=item.id, supplier_id=supplier.id, rate=rate))
 
     if override_supplier_id is not None:
@@ -38,14 +38,14 @@ def _make_awarded_tender(session, item_master_id, rate, supplier_name="Acme", aw
 
 def test_no_prior_history_returns_none():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
         assert get_last_purchase_rate(session, im.id) is None
 
 
 def test_returns_rate_from_awarded_tender():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
         _make_awarded_tender(session, im.id, rate=100, awarded_date=datetime.date(2026, 1, 1))
 
@@ -54,7 +54,7 @@ def test_returns_rate_from_awarded_tender():
 
 def test_ignores_draft_and_proposal_generated_tenders():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
 
         for status in (TenderStatus.draft, TenderStatus.proposal_generated):
@@ -64,7 +64,7 @@ def test_ignores_draft_and_proposal_generated_tenders():
             item = Item(tender_id=tender.id, item_master_id=im.id, ser=1, qty=5)
             session.add(item)
             session.flush()
-            supplier = get_or_create_supplier(session, "Acme")
+            supplier = get_or_create_supplier(session, "Acme")[0]
             session.add(Quote(item_id=item.id, supplier_id=supplier.id, rate=50))
         session.commit()
 
@@ -73,7 +73,7 @@ def test_ignores_draft_and_proposal_generated_tenders():
 
 def test_uses_override_rate_not_lowest():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
 
         tender = Tender(inquiry_no="T", status=TenderStatus.awarded, awarded_date=datetime.date(2026, 1, 1))
@@ -83,8 +83,8 @@ def test_uses_override_rate_not_lowest():
         session.add(item)
         session.flush()
 
-        cheap = get_or_create_supplier(session, "Cheap Co")
-        expensive = get_or_create_supplier(session, "Expensive Co")
+        cheap = get_or_create_supplier(session, "Cheap Co")[0]
+        expensive = get_or_create_supplier(session, "Expensive Co")[0]
         session.add(Quote(item_id=item.id, supplier_id=cheap.id, rate=50))
         session.add(Quote(item_id=item.id, supplier_id=expensive.id, rate=80))
         item.awarded_supplier_id = expensive.id  # overridden away from the lowest
@@ -96,7 +96,7 @@ def test_uses_override_rate_not_lowest():
 
 def test_picks_most_recently_awarded_tender():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
         _make_awarded_tender(session, im.id, rate=100, awarded_date=datetime.date(2026, 1, 1))
         _make_awarded_tender(session, im.id, rate=120, awarded_date=datetime.date(2026, 6, 1))
@@ -106,7 +106,7 @@ def test_picks_most_recently_awarded_tender():
 
 def test_exclude_tender_id_ignores_that_tender():
     with _fresh_session() as session:
-        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+        im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
         session.commit()
         tender, _item, _supplier = _make_awarded_tender(
             session, im.id, rate=100, awarded_date=datetime.date(2026, 1, 1)
@@ -144,7 +144,7 @@ def test_full_lifecycle_auto_fills_lpr_on_next_tender():
     client = TestClient(app)
     try:
         with Session(engine) as session:
-            im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+            im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
             session.commit()
             item_master_id = im.id
 

@@ -3,6 +3,10 @@
 {% block content %}
 <h1>Suppliers</h1>
 
+{% if notice == 'exists' %}
+<div class="card notice-exists"><strong>"{{ notice_name }}"</strong> already existed - any contact details you entered were saved to that existing supplier instead of creating a duplicate.</div>
+{% endif %}
+
 <div class="card">
   <form method="get" action="/suppliers" class="row-form">
     <div class="field">

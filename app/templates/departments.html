@@ -4,6 +4,10 @@
 <h1>Department catalog</h1>
 <p class="muted">Reusable departments/sections - add one here once, then pick it on any number of RFQs.</p>
 
+{% if notice == 'exists' %}
+<div class="card notice-exists"><strong>"{{ notice_name }}"</strong> already existed - using the existing entry instead of creating a duplicate.</div>
+{% endif %}
+
 <div class="card">
   <form method="get" action="/departments" class="row-form">
     <div class="field">

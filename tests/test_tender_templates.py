@@ -30,8 +30,8 @@ def test_save_as_template_then_create_tender_copies_items_not_quotes():
     client, engine = _make_client()
     try:
         with Session(engine) as session:
-            im1 = get_or_create_item_master(session, "X-1", "Widget A", "Nos")
-            im2 = get_or_create_item_master(session, "X-2", "Widget B", "Kg")
+            im1 = get_or_create_item_master(session, "X-1", "Widget A", "Nos")[0]
+            im2 = get_or_create_item_master(session, "X-2", "Widget B", "Kg")[0]
             session.commit()
             im1_id, im2_id = im1.id, im2.id
 
@@ -86,7 +86,7 @@ def test_delete_template():
     client, engine = _make_client()
     try:
         with Session(engine) as session:
-            im = get_or_create_item_master(session, "X-1", "Widget", "Nos")
+            im = get_or_create_item_master(session, "X-1", "Widget", "Nos")[0]
             session.commit()
             im_id = im.id
 

@@ -4,6 +4,10 @@
 <h1>Item catalog</h1>
 <p class="muted">Reusable items - add one here once, then use it on any number of RFQs.</p>
 
+{% if notice == 'exists' %}
+<div class="card notice-exists"><strong>"{{ notice_name }}"</strong> already existed - using the existing catalog entry instead of creating a duplicate.</div>
+{% endif %}
+
 <div class="card">
   <form method="get" action="/items" class="row-form">
     <div class="field">

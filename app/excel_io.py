@@ -59,52 +59,67 @@ def _find_inquiry_no(rows, header_idx: int) -> str:
     return "UNSPECIFIED"
 
 
-def get_or_create_supplier(session: Session, name: str) -> Supplier:
+def get_or_create_supplier(session: Session, name: str) -> tuple[Supplier, bool]:
+    """Returns (supplier, created). Matching is case-insensitive (trimmed)
+    so "M/s Awan Tech" and "m/s awan tech" resolve to the same row instead
+    of creating a near-duplicate. Compared in Python, not via SQL lower():
+    SQLite's built-in LOWER() only folds ASCII, so a description containing
+    e.g. "Ø" would silently mismatch and re-insert a duplicate."""
     name = name.strip()
-    existing = session.exec(select(Supplier).where(Supplier.name == name)).first()
+    needle = name.lower()
+    existing = next((s for s in session.exec(select(Supplier)).all() if s.name.lower() == needle), None)
     if existing:
-        return existing
+        return existing, False
     supplier = Supplier(name=name)
     session.add(supplier)
     session.flush()
-    return supplier
+    return supplier, True
 
 
-def get_or_create_department(session: Session, name: str) -> Department:
+def get_or_create_department(session: Session, name: str) -> tuple[Department, bool]:
+    """Returns (department, created); case-insensitive match, see
+    get_or_create_supplier for why it's done in Python."""
     name = name.strip()
-    existing = session.exec(select(Department).where(Department.name == name)).first()
+    needle = name.lower()
+    existing = next((d for d in session.exec(select(Department)).all() if d.name.lower() == needle), None)
     if existing:
-        return existing
+        return existing, False
     department = Department(name=name)
     session.add(department)
     session.flush()
-    return department
+    return department, True
 
 
 def get_or_create_item_master(
     session: Session, part_no: str, description: str, default_unit: str = ""
-) -> ItemMaster:
-    """Reuse a catalog row when (part_no, description) already matches one
-    (see docs/data-model.md - part_no alone isn't unique for "NIV" items)."""
+) -> tuple[ItemMaster, bool]:
+    """Reuse a catalog row when (part_no, description) already matches one,
+    case-insensitively (see docs/data-model.md - part_no alone isn't
+    unique for "NIV" items; see get_or_create_supplier for why the compare
+    is done in Python, not SQL). Returns (item_master, created)."""
     part_no = (part_no or "").strip()
     description = (description or "").strip()
     default_unit = (default_unit or "").strip()
 
-    existing = session.exec(
-        select(ItemMaster).where(
-            ItemMaster.part_no == part_no, ItemMaster.description == description
-        )
-    ).first()
+    part_needle, desc_needle = part_no.lower(), description.lower()
+    existing = next(
+        (
+            im
+            for im in session.exec(select(ItemMaster)).all()
+            if im.part_no.lower() == part_needle and im.description.lower() == desc_needle
+        ),
+        None,
+    )
     if existing:
         if not existing.default_unit and default_unit:
             existing.default_unit = default_unit
             session.add(existing)
-        return existing
+        return existing, False
 
     item_master = ItemMaster(part_no=part_no, description=description, default_unit=default_unit)
     session.add(item_master)
     session.flush()
-    return item_master
+    return item_master, True
 
 
 def import_tender(path: Union[str, Path], session: Session) -> Tender:
@@ -153,7 +168,7 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
     session.add(tender)
     session.flush()
 
-    suppliers = [get_or_create_supplier(session, name) for name in supplier_names]
+    suppliers = [get_or_create_supplier(session, name)[0] for name in supplier_names]
 
     data_start = header_idx + 2
     started = False
@@ -167,7 +182,7 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
             continue  # not at the data rows yet
 
         started = True
-        item_master = get_or_create_item_master(
+        item_master, _ = get_or_create_item_master(
             session,
             part_no=str(row[1]) if row[1] is not None else "",
             description=str(row[2]) if row[2] is not None else "",
