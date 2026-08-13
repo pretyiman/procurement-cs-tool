@@ -11,9 +11,10 @@ from app.award_engine import build_purchase_proposal
 from app.cs_engine import build_comparative_statement
 from app.docx_export import generate_contract_award, generate_purchase_proposal_doc
 from app.excel_io import import_tender
-from app.models import Supplier
+from app.models import BusinessRules, Supplier
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
+DEFAULT_RULES = BusinessRules()  # 5% deposit (never waived), 0.25% stamp duty - matches the old hardcoded constants
 
 
 def _fresh_session() -> Session:
@@ -46,7 +47,7 @@ def test_contract_award_item_schedule_matches_proposal_exactly():
         session.commit()
 
         content = generate_contract_award(
-            proposal.tender, group, supplier, contract_no="TEST-001",
+            proposal.tender, group, supplier, contract_no="TEST-001", rules=DEFAULT_RULES,
             contract_date=datetime.date(2026, 8, 12), agreement_date=datetime.date(2026, 8, 12),
         )
         doc = Document(BytesIO(content))
@@ -88,7 +89,7 @@ def test_contract_award_includes_opening_date():
         group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-OPEN")
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-OPEN", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
         assert "15 Jul 2026" in full_text
         assert "{{" not in full_text and "{%" not in full_text
@@ -101,7 +102,7 @@ def test_contract_award_opening_date_placeholder_when_unset():
         group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2")
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
         assert "Tender Opening Date ___" in full_text
 
@@ -113,7 +114,7 @@ def test_contract_award_amount_in_words_and_computed_fees():
         group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1")
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
 
         # Matches the real sample CA.doc's amount-in-words for this exact firm/value.
@@ -121,6 +122,30 @@ def test_contract_award_amount_in_words_and_computed_fees():
         # Security deposit = 5% of store value; stamp duty = 0.25% of contract value.
         assert f"{group.store_value * 0.05:,.2f}" in full_text
         assert f"{group.contract_value * 0.0025:,.2f}" in full_text
+
+
+def test_security_deposit_waived_below_configured_threshold():
+    """The exact scenario that motivated BusinessRules: a contract below a
+    configured threshold gets no security deposit at all, while one at or
+    above it still gets the normal percentage."""
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        # Threshold above this firm's contract value -> deposit waived (0.00).
+        waived_rules = BusinessRules(security_deposit_percent=5.0, security_deposit_waived_below=10_000_000, stamp_duty_percent=0.25)
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-WAIVED", rules=waived_rules)
+        full_text = _full_text(Document(BytesIO(content)))
+        assert "0.00" in full_text
+        assert f"{group.store_value * 0.05:,.2f}" not in full_text
+
+        # Threshold below this firm's contract value -> normal 5% still applies.
+        applies_rules = BusinessRules(security_deposit_percent=5.0, security_deposit_waived_below=1, stamp_duty_percent=0.25)
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-APPLIES", rules=applies_rules)
+        full_text = _full_text(Document(BytesIO(content)))
+        assert f"{group.store_value * 0.05:,.2f}" in full_text
 
 
 def test_ampersand_in_firm_name_survives_rendering():
@@ -136,7 +161,7 @@ def test_ampersand_in_firm_name_survives_rendering():
         supplier.name = "M/s Test & Sons"
         group.supplier_name = "M/s Test & Sons"
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2")
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
 
         assert "M/s Test & Sons" in full_text

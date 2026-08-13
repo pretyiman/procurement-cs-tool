@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Settings - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Business Rules</h1>
+<p class="muted">Policy numbers used when generating Contract Award documents - change these here instead of editing code. Takes effect on the next document you generate; already-downloaded documents aren't affected.</p>
+
+{% if saved %}
+<div class="card notice-exists"><strong>Saved.</strong> New Contract Award documents will use these values.</div>
+{% endif %}
+
+<div class="card" style="max-width:520px">
+  <form method="post" action="/settings/business-rules">
+    <div class="field">
+      <label for="security_deposit_percent">Security deposit (%)</label>
+      <input type="text" id="security_deposit_percent" name="security_deposit_percent" value="{{ rules.security_deposit_percent }}" required>
+    </div>
+    <div class="field">
+      <label for="security_deposit_waived_below">Waive security deposit for contracts worth less than (Rs)</label>
+      <input type="text" id="security_deposit_waived_below" name="security_deposit_waived_below" value="{{ rules.security_deposit_waived_below }}">
+      <p class="muted" style="margin:0.35rem 0 0">Leave at 0 to always apply the deposit, regardless of contract value.</p>
+    </div>
+    <div class="field">
+      <label for="stamp_duty_percent">Stamp duty (%)</label>
+      <input type="text" id="stamp_duty_percent" name="stamp_duty_percent" value="{{ rules.stamp_duty_percent }}" required>
+    </div>
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

@@ -16,15 +16,12 @@ from typing import Optional
 from docxtpl import DocxTemplate
 
 from .award_engine import ProposalFirmGroup, PurchaseProposal
-from .models import Supplier, Tender
+from .models import BusinessRules, Supplier, Tender
 from .number_words import amount_in_words, number_to_words, ordinal
 from .paths import resource_path
 
 CA_TEMPLATE_PATH = resource_path("docx_templates", "ca_template.docx")
 PP_TEMPLATE_PATH = resource_path("docx_templates", "pp_template.docx")
-
-SECURITY_DEPOSIT_RATE = 0.05  # 5% of store value, per the sample CA's standing clause
-STAMP_DUTY_RATE = 0.0025  # 0.25% of contract value, per Stamp Duty Act 1899 clause
 
 
 def _esc(value) -> str:
@@ -53,6 +50,7 @@ def generate_contract_award(
     group: ProposalFirmGroup,
     supplier: Supplier,
     contract_no: str,
+    rules: BusinessRules,
     contract_date: Optional[datetime.date] = None,
     agreement_date: Optional[datetime.date] = None,
 ) -> bytes:
@@ -60,8 +58,11 @@ def generate_contract_award(
     agreement_date = agreement_date or datetime.date.today()
 
     store_value = group.store_value
-    security_deposit = store_value * SECURITY_DEPOSIT_RATE
-    stamp_duty = group.contract_value * STAMP_DUTY_RATE
+    if group.contract_value < rules.security_deposit_waived_below:
+        security_deposit = 0.0
+    else:
+        security_deposit = store_value * rules.security_deposit_percent / 100
+    stamp_duty = group.contract_value * rules.stamp_duty_percent / 100
 
     context = {
         "firm_name": _esc(group.supplier_name),

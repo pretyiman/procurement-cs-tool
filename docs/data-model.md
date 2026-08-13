@@ -87,6 +87,19 @@ Deliberately holds no suppliers/quotes/tax fields - only the item list, so
 starting a new tender "from template" copies item lines (with qty) but
 always requires fresh quotes and a fresh GST/PST choice.
 
+### BusinessRules (singleton settings row, always id=1)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | always 1 - get_business_rules() (app/business_rules.py) get-or-creates this row |
+| security_deposit_percent | decimal, default 5.0 | % of store value, Contract Award's security deposit clause |
+| security_deposit_waived_below | decimal, default 0.0 | contract value below which the deposit is skipped entirely (0 = never waived) |
+| stamp_duty_percent | decimal, default 0.25 | % of contract value, Contract Award's stamp duty clause |
+
+Editable via `/settings/business-rules` instead of being hardcoded
+constants in `docx_export.py` - these are policy numbers a procurement
+office may legitimately need to change (e.g. a deposit-waiver threshold)
+without a code deploy.
+
 ## Derived (never stored, always computed)
 
 - **Lowest rate / lowest firm per item** = min(rate) across quotes where

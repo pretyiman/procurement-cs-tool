@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
+from .business_rules import get_business_rules
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
@@ -33,6 +34,7 @@ from .excel_io import (
     import_tender,
 )
 from .models import (
+    BusinessRules,
     Department,
     Item,
     ItemMaster,
@@ -1006,7 +1008,8 @@ def download_contract_draft(
     if group is None:
         raise HTTPException(400, "This supplier has no items awarded on this tender")
 
-    content = generate_contract_award(proposal.tender, group, supplier, contract_no=contract_no)
+    rules = get_business_rules(session)
+    content = generate_contract_award(proposal.tender, group, supplier, contract_no=contract_no, rules=rules)
     filename = f"contract-award-{_safe_filename_part(group.supplier_name)}.docx"
     return Response(
         content=content,
@@ -1025,6 +1028,7 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
     if not proposal.firm_groups:
         raise HTTPException(400, "No items have been awarded to any firm yet")
 
+    rules = get_business_rules(session)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for group in proposal.firm_groups:
@@ -1032,7 +1036,9 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
             # No per-firm contract no. collected in a bulk download - a
             # reasonable auto-generated placeholder, editable in Word after.
             auto_contract_no = f"{tender.inquiry_no} / {group.supplier_name}"
-            content = generate_contract_award(proposal.tender, group, supplier, contract_no=auto_contract_no)
+            content = generate_contract_award(
+                proposal.tender, group, supplier, contract_no=auto_contract_no, rules=rules
+            )
             zf.writestr(f"contract-award-{_safe_filename_part(group.supplier_name)}.docx", content)
 
     filename = f"contract-drafts-tender-{tender_id}.zip"
@@ -1096,3 +1102,34 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Settings: policy numbers used in generated documents (Contract Award),
+# editable here instead of being hardcoded constants in docx_export.py
+# ---------------------------------------------------------------------------
+
+
+@app.get("/settings/business-rules", response_class=HTMLResponse)
+def business_rules_form(request: Request, saved: str = "", session: Session = Depends(get_session)):
+    rules = get_business_rules(session)
+    return templates.TemplateResponse(request, "business_rules.html", {"rules": rules, "saved": bool(saved)})
+
+
+@app.post("/settings/business-rules")
+def update_business_rules(
+    security_deposit_percent: str = Form(...),
+    security_deposit_waived_below: str = Form("0"),
+    stamp_duty_percent: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    rules = get_business_rules(session)
+    try:
+        rules.security_deposit_percent = float(security_deposit_percent)
+        rules.security_deposit_waived_below = float(security_deposit_waived_below or 0)
+        rules.stamp_duty_percent = float(stamp_duty_percent)
+    except ValueError:
+        raise HTTPException(400, "All fields must be numbers")
+    session.add(rules)
+    session.commit()
+    return RedirectResponse("/settings/business-rules?saved=1", status_code=303)

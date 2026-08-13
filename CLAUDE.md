@@ -61,7 +61,8 @@ ProcurementCSTool.spec      # PyInstaller build spec (committed, reproducible)
 app/
   main.py                # FastAPI app + all routes
   models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote,
-                           # Department, TenderTemplate/TenderTemplateItem
+                           # Department, TenderTemplate/TenderTemplateItem,
+                           # BusinessRules
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
@@ -71,6 +72,10 @@ app/
   docx_export.py                    # PP/CA document generation (docxtpl)
   number_words.py                     # amount-in-words, ordinal (for PP/CA)
   lpr_history.py                        # cross-tender Last Purchase Rate lookup
+  business_rules.py                       # get-or-create singleton BusinessRules
+                                           # row (security deposit/stamp duty %),
+                                           # editable at /settings/business-rules
+                                           # instead of hardcoded in docx_export.py
   docx_templates/
     ca_template.docx                      # Contract Award - built by surgically
                                            # editing the user's real CA.doc (see
@@ -79,13 +84,16 @@ app/
                                              # from PP.doc
   templates/
     base.html                 # sidebar shell (Dashboard/Items/Suppliers/
-                               # Departments/RFQs) + shared search-select JS
-                               # combobox (supports inline "+" quick-create)
+                               # Departments/RFQs/Settings) + shared
+                               # search-select JS combobox (supports inline
+                               # "+" quick-create)
     dashboard.html              # "/" — stat cards + recent tenders
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
     departments.html                 # "/departments" — catalog list/search/create
+    business_rules.html                # "/settings/business-rules" — deposit/
+                                        # stamp-duty % used in Contract Award docs
     tenders_list.html                # "/tenders" — list/create/import
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt

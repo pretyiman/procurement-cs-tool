@@ -114,6 +114,20 @@ class TenderTemplate(SQLModel, table=True):
     lines: List["TenderTemplateItem"] = Relationship(back_populates="template")
 
 
+class BusinessRules(SQLModel, table=True):
+    """Singleton settings row (always id=1) for policy numbers that
+    shouldn't require a code change to adjust - e.g. the security deposit
+    percentage and the contract value below which it's waived entirely.
+    Previously these were hardcoded constants in docx_export.py."""
+
+    __tablename__ = "business_rules"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    security_deposit_percent: float = 5.0
+    security_deposit_waived_below: float = 0.0  # 0 = never waived (today's behavior, unconditional)
+    stamp_duty_percent: float = 0.25
+
+
 class TenderTemplateItem(SQLModel, table=True):
     __tablename__ = "tender_template_item"
 
