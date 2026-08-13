@@ -7,6 +7,8 @@ bundled defaults.
 """
 
 import datetime
+import tempfile
+from pathlib import Path
 
 from .award_engine import AwardedItem, ProposalFirmGroup, PurchaseProposal
 from .cs_engine import GrandTotal
@@ -18,6 +20,58 @@ TEMPLATE_NAMES = {
     "ca_template.docx": "Contract Award",
     "pp_template.docx": "Purchase Proposal",
 }
+
+WD_FORMAT_DOCX = 16  # wdFormatXMLDocument
+
+
+def convert_doc_to_docx(content: bytes) -> bytes:
+    """.doc (the old binary Word format) and .docx (a zip of XML) are
+    completely different file formats - docxtpl/python-docx can only ever
+    read .docx. There's no reliable pure-Python .doc->.docx converter that
+    preserves formatting, so this drives an actual installed Word via COM
+    automation (the same approach used once already in this project, to
+    build ca_template.docx/pp_template.docx from the user's original
+    CA.doc/PP.doc). Raises ValueError with a friendly message if Word
+    isn't available - callers should let the admin save as .docx manually
+    in that case, not treat it as a hard blocker."""
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as e:
+        raise ValueError(
+            "Converting a .doc file requires Microsoft Word to be installed on this "
+            "computer. Please open the file in Word, use File > Save As > Word Document "
+            "(.docx), and upload the .docx file instead."
+        ) from e
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        doc_path = Path(tmp_dir) / "upload.doc"
+        docx_path = Path(tmp_dir) / "upload.docx"
+        doc_path.write_bytes(content)
+
+        pythoncom.CoInitialize()
+        word = None
+        document = None
+        try:
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            document = word.Documents.Open(str(doc_path))
+            document.SaveAs2(str(docx_path), FileFormat=WD_FORMAT_DOCX)
+        except Exception as e:
+            raise ValueError(
+                f"Could not convert this .doc file using Word: {e}. Try saving it as "
+                ".docx manually in Word instead."
+            ) from e
+        finally:
+            if document is not None:
+                document.Close(False)
+            if word is not None:
+                word.Quit()
+            pythoncom.CoUninitialize()
+
+        if not docx_path.exists():
+            raise ValueError("Word did not produce a .docx file from this upload.")
+        return docx_path.read_bytes()
 
 
 def _require_known_template(name: str) -> None:

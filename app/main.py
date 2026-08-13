@@ -23,6 +23,7 @@ from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .template_manager import (
     TEMPLATE_NAMES,
+    convert_doc_to_docx,
     list_templates,
     read_active_template,
     restore_default_template,
@@ -1171,11 +1172,17 @@ def download_template(name: str):
 async def upload_template(name: str, file: UploadFile = File(...)):
     if name not in TEMPLATE_NAMES:
         raise HTTPException(404, "Unknown template")
-    if not file.filename.lower().endswith(".docx"):
+    filename = file.filename.lower()
+    if not (filename.endswith(".docx") or filename.endswith(".doc")):
         return RedirectResponse(
-            f"/settings/templates?error={quote('Please upload a .docx file.')}", status_code=303
+            f"/settings/templates?error={quote('Please upload a .doc or .docx file.')}", status_code=303
         )
     content = await file.read()
+    if filename.endswith(".doc"):
+        try:
+            content = convert_doc_to_docx(content)
+        except ValueError as e:
+            return RedirectResponse(f"/settings/templates?error={quote(str(e))}", status_code=303)
     try:
         validate_template(name, content)
     except ValueError as e:

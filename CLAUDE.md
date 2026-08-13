@@ -150,6 +150,17 @@ edit it directly if bundled data files or hidden imports need to change,
 rather than re-running `pyinstaller run.py ...` from scratch. `dist/` and
 `build/` are gitignored (regenerate, don't commit).
 
+`.doc`-upload support (Settings > Document Templates, `template_manager.
+convert_doc_to_docx()`) added a `pywin32` dependency (Windows-only, see
+`requirements.txt`) that drives Word via COM automation - only reachable
+when a `.doc` is uploaded (`.docx` uploads never touch it) and only
+actually usable on a machine with Word installed; without Word it
+degrades to a friendly error asking the admin to save as `.docx`
+manually, it doesn't crash. Not yet verified inside a frozen build - the
+lazy `import win32com.client` happens inside the function, which
+PyInstaller's static analysis should still pick up, but this hasn't
+actually been tested with a rebuilt `dist/ProcurementCSTool.exe`.
+
 Items are **reusable catalog data** (`ItemMaster`, unique on
 `part_no + description` together — see `docs/data-model.md` for why part_no
 alone isn't unique, e.g. "NIV" non-inventory items). A tender's `Item` rows

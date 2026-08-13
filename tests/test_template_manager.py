@@ -1,4 +1,6 @@
+import sys
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from docx import Document
@@ -18,22 +20,16 @@ except ImportError:  # pragma: no cover
 REAL_CA_BYTES = resource_path("docx_templates", "ca_template.docx").read_bytes()
 REAL_PP_BYTES = resource_path("docx_templates", "pp_template.docx").read_bytes()
 
+# CA.doc is the user-supplied real reference document (see CLAUDE.md "Data
+# sensitivity") - gitignored, local-only. Tests that need real .doc content
+# skip gracefully when it isn't present rather than failing on a machine/CI
+# that doesn't have it.
+REAL_DOC_PATH = Path(__file__).resolve().parent.parent / "CA.doc"
+requires_real_doc_file = pytest.mark.skipif(not REAL_DOC_PATH.exists(), reason="CA.doc not present (local-only sample file)")
 
-@pytest.fixture(autouse=True)
-def isolated_custom_templates_dir(tmp_path, monkeypatch):
-    """Every test in this file must never write into the real repo's
-    (or a real install's) user_data_dir - point custom_docx_templates_dir()
-    at a throwaway tmp_path instead."""
-    custom_dir = tmp_path / "docx_templates"
-    custom_dir.mkdir()
-    monkeypatch.setattr(template_manager, "custom_docx_templates_dir", lambda: custom_dir)
-    # docx_export.py's docx_template_path() and paths.docx_template_path()
-    # both call the real paths.custom_docx_templates_dir - patch there too
-    # so generate_contract_award's own path resolution agrees with it.
-    import app.paths as paths_module
 
-    monkeypatch.setattr(paths_module, "custom_docx_templates_dir", lambda: custom_dir)
-    yield custom_dir
+# Isolation from the real custom_docx_templates_dir() is provided
+# suite-wide by tests/conftest.py's autouse fixture.
 
 
 def _make_client():
@@ -126,5 +122,61 @@ def test_upload_route_rejects_invalid_file_and_accepts_valid_one():
         resp = client.get("/settings/templates/ca_template.docx/download")
         assert resp.status_code == 200
         assert resp.content == REAL_CA_BYTES
+    finally:
+        app.dependency_overrides.clear()
+
+
+@requires_real_doc_file
+def test_convert_doc_to_docx_produces_a_valid_docx():
+    content = REAL_DOC_PATH.read_bytes()
+    result = template_manager.convert_doc_to_docx(content)
+    assert result[:2] == b"PK"  # zip signature - a real .docx, not raw .doc bytes
+    # Must be openable as a real docx, not just superficially zip-shaped.
+    Document(BytesIO(result))
+
+
+def test_convert_doc_to_docx_gives_a_friendly_error_when_word_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "win32com", None)
+    monkeypatch.setitem(sys.modules, "win32com.client", None)
+    monkeypatch.setitem(sys.modules, "pythoncom", None)
+
+    with pytest.raises(ValueError, match="Microsoft Word"):
+        template_manager.convert_doc_to_docx(b"pretend .doc bytes")
+
+
+@requires_real_doc_file
+def test_upload_route_converts_a_real_doc_upload():
+    client, engine = _make_client()
+    try:
+        resp = client.post(
+            "/settings/templates/ca_template.docx/upload",
+            files={"file": ("CA.doc", REAL_DOC_PATH.read_bytes(), "application/msword")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/settings/templates?saved=1"
+
+        # What actually got stored/is now active is a real, valid .docx -
+        # not the raw uploaded .doc bytes.
+        resp = client.get("/settings/templates/ca_template.docx/download")
+        assert resp.status_code == 200
+        assert resp.content[:2] == b"PK"
+        Document(BytesIO(resp.content))
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_upload_route_rejects_unsupported_extension():
+    client, engine = _make_client()
+    try:
+        resp = client.post(
+            "/settings/templates/ca_template.docx/upload",
+            files={"file": ("template.txt", b"plain text", "text/plain")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert "error=" in resp.headers["location"]
+        resp = client.get(resp.headers["location"])
+        assert ".doc" in resp.text
     finally:
         app.dependency_overrides.clear()

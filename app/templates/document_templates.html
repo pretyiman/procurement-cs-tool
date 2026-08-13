@@ -5,7 +5,7 @@
 <p class="muted">
   <a href="/settings/business-rules">Business Rules</a> &middot; <strong>Document Templates</strong> &middot; <a href="/settings/cs-labels">CS Labels</a>
 </p>
-<p class="muted">Download the current Contract Award / Purchase Proposal template, edit it in Word (wording, clauses, signature block - anything that isn't a per-contract number), and upload it back. No filesystem access needed.</p>
+<p class="muted">Download the current Contract Award / Purchase Proposal template, edit it in Word (wording, clauses, signature block - anything that isn't a per-contract number), and upload it back. No filesystem access needed. Old-format .doc files are automatically converted (requires Microsoft Word to be installed on this computer) - if that's not available, save as .docx in Word first and upload that instead.</p>
 
 {% if error %}
 <div class="card" style="background:#fdecea;border-color:#f1a9a0"><strong>Couldn't use that file.</strong> {{ error }}</div>
@@ -33,8 +33,8 @@
   </p>
   <form method="post" action="/settings/templates/{{ row.name }}/upload" enctype="multipart/form-data" class="row-form">
     <div class="field">
-      <label for="file-{{ row.name }}">Upload replacement (.docx)</label>
-      <input type="file" id="file-{{ row.name }}" name="file" accept=".docx" required>
+      <label for="file-{{ row.name }}">Upload replacement (.docx or .doc)</label>
+      <input type="file" id="file-{{ row.name }}" name="file" accept=".docx,.doc" required>
     </div>
     <button type="submit">Upload &amp; use</button>
   </form>

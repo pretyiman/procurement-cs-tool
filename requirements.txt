@@ -7,3 +7,4 @@ jinja2
 pytest
 httpx
 docxtpl
+pywin32; sys_platform == "win32"
