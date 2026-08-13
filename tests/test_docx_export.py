@@ -77,6 +77,35 @@ def test_contract_award_item_schedule_matches_proposal_exactly():
         assert "{{" not in full_text and "{%" not in full_text
 
 
+def test_contract_award_includes_opening_date():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        tender.opening_date = datetime.date(2026, 7, 15)
+        session.add(tender)
+        session.commit()
+
+        proposal = build_purchase_proposal(session, tender.id)
+        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-OPEN")
+        full_text = _full_text(Document(BytesIO(content)))
+        assert "15 Jul 2026" in full_text
+        assert "{{" not in full_text and "{%" not in full_text
+
+
+def test_contract_award_opening_date_placeholder_when_unset():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2")
+        full_text = _full_text(Document(BytesIO(content)))
+        assert "Tender Opening Date ___" in full_text
+
+
 def test_contract_award_amount_in_words_and_computed_fees():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)

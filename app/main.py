@@ -402,6 +402,8 @@ def create_tender_from_template(
     template_id: str = Form(...),
     inquiry_no: str = Form(...),
     department_id: str = Form(""),
+    issue_date: str = Form(""),
+    opening_date: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -422,6 +424,8 @@ def create_tender_from_template(
     tender = Tender(
         inquiry_no=inquiry_no.strip(),
         department_id=int(department_id) if department_id.strip() else None,
+        issue_date=datetime.date.fromisoformat(issue_date) if issue_date.strip() else None,
+        opening_date=datetime.date.fromisoformat(opening_date) if opening_date.strip() else None,
         tax_type=tax_type_val,
         tax_percent=tax_pct,
         status=TenderStatus.draft,
@@ -475,6 +479,8 @@ def new_tender_form(request: Request, session: Session = Depends(get_session)):
 def create_tender(
     inquiry_no: str = Form(...),
     department_id: str = Form(""),
+    issue_date: str = Form(""),
+    opening_date: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -491,6 +497,8 @@ def create_tender(
     tender = Tender(
         inquiry_no=inquiry_no.strip(),
         department_id=int(department_id) if department_id.strip() else None,
+        issue_date=datetime.date.fromisoformat(issue_date) if issue_date.strip() else None,
+        opening_date=datetime.date.fromisoformat(opening_date) if opening_date.strip() else None,
         tax_type=tax_type_val,
         tax_percent=tax_pct,
         status=TenderStatus.draft,

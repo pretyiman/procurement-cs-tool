@@ -4,6 +4,8 @@
 <h1>{{ tender.inquiry_no }}</h1>
 <p class="muted">
   {% if tender.department %}{{ tender.department.name }} &middot; {% endif %}{{ tender.tax_type.value }} {{ tender.tax_percent }}% &middot; Status: {{ tender.status.value }}
+  {% if tender.issue_date %} &middot; Published: {{ tender.issue_date.strftime('%d %b %Y') }}{% endif %}
+  {% if tender.opening_date %} &middot; Opens: {{ tender.opening_date.strftime('%d %b %Y') }}{% endif %}
 </p>
 <p>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>

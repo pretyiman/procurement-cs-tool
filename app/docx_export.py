@@ -69,6 +69,7 @@ def generate_contract_award(
         "agreement_date_words": _date_words(agreement_date),
         "indent_no": _esc(tender.indent_no or tender.inquiry_no),
         "indent_date": tender.issue_date.strftime("%d %b %Y") if tender.issue_date else "___",
+        "opening_date": tender.opening_date.strftime("%d %b %Y") if tender.opening_date else "___",
         "delivery_days": tender.delivery_days,
         "warranty_months": f"{tender.warranty_months:02d}",
         "contract_no": _esc(contract_no),
