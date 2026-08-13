@@ -281,6 +281,7 @@ def save_as_template(tender_id: int, name: str = Form(...), session: Session = D
 def create_tender_from_template(
     template_id: str = Form(...),
     inquiry_no: str = Form(...),
+    subject_department: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -299,7 +300,11 @@ def create_tender_from_template(
         raise HTTPException(400, "Invalid tax type/percent")
 
     tender = Tender(
-        inquiry_no=inquiry_no.strip(), tax_type=tax_type_val, tax_percent=tax_pct, status=TenderStatus.draft
+        inquiry_no=inquiry_no.strip(),
+        subject_department=subject_department.strip() or None,
+        tax_type=tax_type_val,
+        tax_percent=tax_pct,
+        status=TenderStatus.draft,
     )
     session.add(tender)
     session.flush()
@@ -340,6 +345,7 @@ def new_tender_form(request: Request, session: Session = Depends(get_session)):
 @app.post("/tenders")
 def create_tender(
     inquiry_no: str = Form(...),
+    subject_department: str = Form(""),
     tax_type: str = Form("GST"),
     tax_percent: str = Form("18"),
     session: Session = Depends(get_session),
@@ -355,6 +361,7 @@ def create_tender(
 
     tender = Tender(
         inquiry_no=inquiry_no.strip(),
+        subject_department=subject_department.strip() or None,
         tax_type=tax_type_val,
         tax_percent=tax_pct,
         status=TenderStatus.draft,

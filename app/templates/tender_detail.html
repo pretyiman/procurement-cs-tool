@@ -2,7 +2,9 @@
 {% block title %}{{ tender.inquiry_no }} - Procurement CS Tool{% endblock %}
 {% block content %}
 <h1>{{ tender.inquiry_no }}</h1>
-<p class="muted">{{ tender.tax_type.value }} {{ tender.tax_percent }}% &middot; Status: {{ tender.status.value }}</p>
+<p class="muted">
+  {% if tender.subject_department %}{{ tender.subject_department }} &middot; {% endif %}{{ tender.tax_type.value }} {{ tender.tax_percent }}% &middot; Status: {{ tender.status.value }}
+</p>
 <p>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/award">Award Review</a>
