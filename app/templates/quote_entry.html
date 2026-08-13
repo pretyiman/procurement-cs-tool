@@ -14,10 +14,29 @@
     <div class="field" style="flex:2">
       <label for="item-search-input">Item</label>
       <div class="search-select" id="item-search">
-        <input type="text" id="item-search-input" class="search-select-input" autocomplete="off"
-               placeholder="Type to search items...">
+        <div class="search-select-row">
+          <input type="text" id="item-search-input" class="search-select-input" autocomplete="off"
+                 placeholder="Type to search items...">
+          <button type="button" class="search-select-add-btn" title="Create a new catalog item">+</button>
+        </div>
         <input type="hidden" class="search-select-hidden" name="item_master_id">
         <div class="search-select-menu"></div>
+        <div class="search-select-create">
+          <div class="field">
+            <label>Part No (optional)</label>
+            <input type="text" class="qc-part-no">
+          </div>
+          <div class="field">
+            <label>Description</label>
+            <input type="text" class="qc-description">
+          </div>
+          <div class="field">
+            <label>Unit (optional)</label>
+            <input type="text" class="qc-unit">
+          </div>
+          <button type="button" class="qc-submit btn" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Create &amp; use</button>
+          <button type="button" class="qc-cancel btn-secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Cancel</button>
+        </div>
       </div>
     </div>
     <div class="field" style="max-width:90px">
@@ -77,6 +96,10 @@
   }
 
   initSearchSelect('item-search', {{ catalog_items_json | safe }}, {
+    allowCreate: true,
+    buildCreatedItem: function (data) {
+      return { id: data.id, label: data.part_no + ' - ' + data.description, unit: data.unit, qty: '' };
+    },
     onSelect: function (item) {
       document.getElementById('unit_display').value = item.unit || '';
       document.getElementById('qty').value = item.qty || '';

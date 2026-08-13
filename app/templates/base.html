@@ -133,6 +133,33 @@
     .search-select-option { padding: 0.4rem 0.6rem; cursor: pointer; font-size: 0.88rem; }
     .search-select-option:hover, .search-select-option.active { background: #eef1f5; }
     .search-select-empty { padding: 0.4rem 0.6rem; color: var(--muted); font-size: 0.85rem; font-style: italic; }
+    .search-select-row { display: flex; gap: 0.4rem; }
+    .search-select-row .search-select-input { flex: 1; min-width: 0; }
+    .search-select-add-btn {
+      flex-shrink: 0;
+      width: 2.3rem;
+      border: 1px solid var(--border);
+      background: #f4f6f8;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+      color: var(--accent);
+    }
+    .search-select-add-btn:hover { background: #eef1f5; }
+    .search-select-create {
+      display: none;
+      position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px;
+      background: white; border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.75rem; z-index: 21;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    }
+    .search-select-create.open { display: block; }
+    .search-select-create .field { margin-bottom: 0.5rem; }
+    .search-select-create .field label { margin-bottom: 0.15rem; }
+    .qty-input { width: 5.5rem; }
+    .btn-danger { background: #c0392b; color: white; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; }
+    .btn-danger:hover { opacity: 0.9; }
     @media (max-width: 780px) {
       .app-shell { flex-direction: column; }
       aside.sidebar { width: 100%; height: auto; position: static; }
@@ -164,6 +191,7 @@
       var menu = root.querySelector('.search-select-menu');
       var activeIndex = -1;
       var currentMatches = [];
+      var closeCreatePanel = function () {};
 
       function render(matches) {
         currentMatches = matches;
@@ -201,6 +229,7 @@
       }
 
       function filter() {
+        closeCreatePanel();
         var q = input.value.trim().toLowerCase();
         if (hidden) hidden.value = '';
         if (!q) { menu.classList.remove('open'); return; }
@@ -234,6 +263,75 @@
       document.addEventListener('click', function (e) {
         if (!root.contains(e.target)) menu.classList.remove('open');
       });
+
+      if (opts.allowCreate) {
+        var addBtn = root.querySelector('.search-select-add-btn');
+        var createPanel = root.querySelector('.search-select-create');
+        if (addBtn && createPanel) {
+          var partNoInput = createPanel.querySelector('.qc-part-no');
+          var descInput = createPanel.querySelector('.qc-description');
+          var unitInput = createPanel.querySelector('.qc-unit');
+          var submitBtn = createPanel.querySelector('.qc-submit');
+          var cancelBtn = createPanel.querySelector('.qc-cancel');
+
+          closeCreatePanel = function () {
+            createPanel.classList.remove('open');
+            partNoInput.value = '';
+            descInput.value = '';
+            unitInput.value = '';
+          };
+
+          addBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            menu.classList.remove('open');
+            descInput.value = input.value.trim();
+            createPanel.classList.add('open');
+            partNoInput.focus();
+          });
+
+          cancelBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            closeCreatePanel();
+          });
+
+          submitBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            var description = descInput.value.trim();
+            if (!description) {
+              alert('Description is required.');
+              return;
+            }
+            var body = new URLSearchParams();
+            body.set('part_no', partNoInput.value.trim());
+            body.set('description', description);
+            body.set('default_unit', unitInput.value.trim());
+            submitBtn.disabled = true;
+            fetch(opts.createUrl || '/items/quick-create', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: body.toString()
+            }).then(function (resp) {
+              if (!resp.ok) throw new Error('Create failed');
+              return resp.json();
+            }).then(function (data) {
+              var item = opts.buildCreatedItem
+                ? opts.buildCreatedItem(data)
+                : { id: data.id, label: data.part_no + ' - ' + data.description };
+              items.push(item);
+              select(item);
+              closeCreatePanel();
+            }).catch(function () {
+              alert('Could not create the item. Please try again.');
+            }).finally(function () {
+              submitBtn.disabled = false;
+            });
+          });
+
+          document.addEventListener('click', function (e) {
+            if (!root.contains(e.target)) closeCreatePanel();
+          });
+        }
+      }
     }
   </script>
 </head>

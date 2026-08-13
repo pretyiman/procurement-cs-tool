@@ -118,6 +118,28 @@ def create_item(
     return RedirectResponse("/items", status_code=303)
 
 
+@app.post("/items/quick-create")
+def quick_create_item(
+    part_no: str = Form(""),
+    description: str = Form(...),
+    default_unit: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Same as create_item, but returns JSON instead of redirecting - used
+    by the item search-select's "+" button so a page mid-way through
+    filling out an RFQ/quote form doesn't lose its state to a navigation."""
+    if not description.strip():
+        raise HTTPException(400, "Description is required")
+    item_master = get_or_create_item_master(session, part_no, description, default_unit)
+    session.commit()
+    return {
+        "id": item_master.id,
+        "part_no": item_master.part_no,
+        "description": item_master.description,
+        "unit": item_master.default_unit,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Supplier catalog (reusable across tenders)
 # ---------------------------------------------------------------------------
@@ -482,6 +504,33 @@ def add_item(
     return RedirectResponse(f"/tenders/{tender_id}", status_code=303)
 
 
+@app.post("/tenders/{tender_id}/items/{item_id}/delete")
+def delete_item(tender_id: int, item_id: int, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    item = session.get(Item, item_id)
+    if item is None or item.tender_id != tender_id:
+        raise HTTPException(404, "Item not found on this RFQ")
+
+    for quote in session.exec(select(Quote).where(Quote.item_id == item_id)).all():
+        session.delete(quote)
+    session.delete(item)
+    session.flush()
+
+    remaining = session.exec(
+        select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)
+    ).all()
+    for new_ser, remaining_item in enumerate(remaining, start=1):
+        if remaining_item.ser != new_ser:
+            remaining_item.ser = new_ser
+            session.add(remaining_item)
+
+    session.commit()
+    return RedirectResponse(f"/tenders/{tender_id}#quotes", status_code=303)
+
+
 @app.post("/tenders/{tender_id}/quotes")
 async def save_quotes(tender_id: int, request: Request, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
@@ -490,28 +539,40 @@ async def save_quotes(tender_id: int, request: Request, session: Session = Depen
 
     form = await request.form()
     for key, value in form.multi_items():
-        if not key.startswith("rate__"):
-            continue
-        _, item_id_str, supplier_id_str = key.split("__")
-        item_id, supplier_id = int(item_id_str), int(supplier_id_str)
+        if key.startswith("rate__"):
+            _, item_id_str, supplier_id_str = key.split("__")
+            item_id, supplier_id = int(item_id_str), int(supplier_id_str)
 
-        text = str(value).strip()
-        if text == "" or text.upper() == "NQ":
-            rate = None
-        else:
+            text = str(value).strip()
+            if text == "" or text.upper() == "NQ":
+                rate = None
+            else:
+                try:
+                    rate = float(text)
+                except ValueError:
+                    raise HTTPException(400, f"Invalid rate '{text}' for item {item_id}")
+
+            quote = session.exec(
+                select(Quote).where(Quote.item_id == item_id, Quote.supplier_id == supplier_id)
+            ).first()
+            if quote is None:
+                session.add(Quote(item_id=item_id, supplier_id=supplier_id, rate=rate))
+            else:
+                quote.rate = rate
+                session.add(quote)
+        elif key.startswith("qty__"):
+            _, item_id_str = key.split("__")
+            item_id = int(item_id_str)
+
             try:
-                rate = float(text)
+                qty = float(str(value).strip())
             except ValueError:
-                raise HTTPException(400, f"Invalid rate '{text}' for item {item_id}")
+                raise HTTPException(400, f"Invalid quantity '{value}' for item {item_id}")
 
-        quote = session.exec(
-            select(Quote).where(Quote.item_id == item_id, Quote.supplier_id == supplier_id)
-        ).first()
-        if quote is None:
-            session.add(Quote(item_id=item_id, supplier_id=supplier_id, rate=rate))
-        else:
-            quote.rate = rate
-            session.add(quote)
+            item = session.get(Item, item_id)
+            if item is not None and item.tender_id == tender_id:
+                item.qty = qty
+                session.add(item)
 
     session.commit()
     return RedirectResponse(f"/tenders/{tender_id}#quotes", status_code=303)
