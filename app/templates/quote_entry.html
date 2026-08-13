@@ -35,7 +35,10 @@
 
 {% if selected_supplier %}
 <div class="card" style="overflow-x:auto">
-  <h2 style="margin-top:0">{{ selected_supplier.name }} &mdash; enter rates</h2>
+  <h2 style="margin-top:0">
+    {{ selected_supplier.name }} &mdash; enter rates
+    <a href="/tenders/{{ tender.id }}/quote-entry" class="muted" style="font-size:0.85rem;font-weight:normal;margin-left:0.75rem">&times; done, back to summary</a>
+  </h2>
   {% if items %}
   <form method="post" action="/tenders/{{ tender.id }}/quote-entry">
     <input type="hidden" name="supplier_id" value="{{ selected_supplier.id }}">
@@ -124,7 +127,7 @@
         <tr>
           <th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th>
           {% for s in quoting_suppliers %}
-          <th><a href="/tenders/{{ tender.id }}/quote-entry?supplier_id={{ s.id }}">{{ s.name }}</a></th>
+          <th>{{ s.name }}</th>
           {% endfor %}
         </tr>
       </thead>
