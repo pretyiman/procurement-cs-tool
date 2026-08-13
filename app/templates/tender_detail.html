@@ -9,7 +9,7 @@
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
 </p>
 
-{% if item_rows %}
+{% if items %}
 <details style="margin-bottom:1rem">
   <summary class="muted" style="cursor:pointer">Save this item list as a template for future recurring RFQs</summary>
   <form method="post" action="/tenders/{{ tender.id }}/save-as-template" class="row-form" style="margin-top:0.5rem">
@@ -82,35 +82,26 @@
   });
 </script>
 
-<h2 id="quotes">Items &amp; quotes</h2>
-<p class="muted">Suppliers aren't added separately - once a firm submits a quote, enter it via <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a> and they'll appear here automatically.</p>
-{% if item_rows %}
-<form method="post" action="/tenders/{{ tender.id }}/quotes">
+<h2 id="items">Items</h2>
+<p class="muted">Pricing isn't entered here - once a firm submits a quote, record it via <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>.</p>
+{% if items %}
+<form method="post" action="/tenders/{{ tender.id }}/items/save-quantities">
 <div class="card" style="overflow-x:auto">
   <table>
     <thead>
       <tr>
         <th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th>
-        {% for s in suppliers %}<th>{{ s.name }}</th>{% endfor %}
         <th></th>
       </tr>
     </thead>
     <tbody>
-      {% for row in item_rows %}
-      {% set item = row.item %}
+      {% for item in items %}
       <tr>
         <td>{{ item.ser }}</td>
         <td>{{ item.item_master.part_no }}</td>
         <td>{{ item.item_master.description }}</td>
         <td>{{ item.item_master.default_unit }}</td>
         <td class="num"><input class="qty-input" type="text" name="qty__{{ item.id }}" value="{{ item.qty }}"></td>
-        {% for s in suppliers %}
-          {% set rate = rate_matrix.get((item.id, s.id)) %}
-          <td class="{{ 'lowest-cell' if row.lowest_supplier_id == s.id else '' }}">
-            <input class="rate-input" type="text" name="rate__{{ item.id }}__{{ s.id }}"
-                   value="{{ rate if rate is not none else '' }}" placeholder="NQ">
-          </td>
-        {% endfor %}
         <td>
           <button type="submit" class="btn-danger" style="padding:0.25rem 0.6rem;font-size:0.8rem;"
                   formaction="/tenders/{{ tender.id }}/items/{{ item.id }}/delete" formmethod="post"

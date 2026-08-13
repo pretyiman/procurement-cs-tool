@@ -403,17 +403,6 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
     items = session.exec(
         select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)
     ).all()
-    item_ids = [i.id for i in items]
-
-    quotes = (
-        session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
-    )
-    rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in quotes}
-
-    cs = build_comparative_statement(session, tender_id)
-    attached_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
-
-    item_rows = [{"item": r.item, "lowest_supplier_id": r.lowest_supplier_id} for r in cs.item_results]
 
     catalog_items = session.exec(select(ItemMaster)).all()
     catalog_items.sort(key=lambda im: (im.part_no, im.description))
@@ -426,9 +415,7 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
         "tender_detail.html",
         {
             "tender": tender,
-            "suppliers": attached_suppliers,
-            "rate_matrix": rate_matrix,
-            "item_rows": item_rows,
+            "items": items,
             "catalog_items_json": catalog_items_json,
         },
     )
@@ -528,54 +515,34 @@ def delete_item(tender_id: int, item_id: int, session: Session = Depends(get_ses
             session.add(remaining_item)
 
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}#quotes", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}#items", status_code=303)
 
 
-@app.post("/tenders/{tender_id}/quotes")
-async def save_quotes(tender_id: int, request: Request, session: Session = Depends(get_session)):
+@app.post("/tenders/{tender_id}/items/save-quantities")
+async def save_item_quantities(tender_id: int, request: Request, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
     form = await request.form()
     for key, value in form.multi_items():
-        if key.startswith("rate__"):
-            _, item_id_str, supplier_id_str = key.split("__")
-            item_id, supplier_id = int(item_id_str), int(supplier_id_str)
+        if not key.startswith("qty__"):
+            continue
+        _, item_id_str = key.split("__")
+        item_id = int(item_id_str)
 
-            text = str(value).strip()
-            if text == "" or text.upper() == "NQ":
-                rate = None
-            else:
-                try:
-                    rate = float(text)
-                except ValueError:
-                    raise HTTPException(400, f"Invalid rate '{text}' for item {item_id}")
+        try:
+            qty = float(str(value).strip())
+        except ValueError:
+            raise HTTPException(400, f"Invalid quantity '{value}' for item {item_id}")
 
-            quote = session.exec(
-                select(Quote).where(Quote.item_id == item_id, Quote.supplier_id == supplier_id)
-            ).first()
-            if quote is None:
-                session.add(Quote(item_id=item_id, supplier_id=supplier_id, rate=rate))
-            else:
-                quote.rate = rate
-                session.add(quote)
-        elif key.startswith("qty__"):
-            _, item_id_str = key.split("__")
-            item_id = int(item_id_str)
-
-            try:
-                qty = float(str(value).strip())
-            except ValueError:
-                raise HTTPException(400, f"Invalid quantity '{value}' for item {item_id}")
-
-            item = session.get(Item, item_id)
-            if item is not None and item.tender_id == tender_id:
-                item.qty = qty
-                session.add(item)
+        item = session.get(Item, item_id)
+        if item is not None and item.tender_id == tender_id:
+            item.qty = qty
+            session.add(item)
 
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}#quotes", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}#items", status_code=303)
 
 
 def _ensure_full_grid(session: Session, tender_id: int) -> None:
