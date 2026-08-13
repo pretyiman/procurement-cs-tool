@@ -20,7 +20,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlmodel import Session, select
 
-from .models import Department, Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
+from .models import Department, DocumentLabels, Item, ItemMaster, Quote, Supplier, TaxType, Tender, TenderStatus
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
@@ -273,7 +273,7 @@ def export_rfq_item_list_xlsx(tender: Tender, items: list[Item]) -> bytes:
     return _simple_list_workbook(title, ["Ser", "Part No", "Description", "Unit", "Qty"], rows)
 
 
-def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
+def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
     """Render a ComparativeStatement (app/cs_engine.py) as an .xlsx workbook
     shaped like the original CS.xlsx: Ser/Part No/Description/A-U/Qty, one
     rate column per supplier, Lowest Firm/Rate/Total Value, LPR/Inc-Dec%,
@@ -298,7 +298,7 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     banner_align = Alignment(horizontal="center", vertical="center")
     banner_font = Font(bold=True, size=10)
 
-    title_cell = ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT")
+    title_cell = ws.cell(row=1, column=1, value=labels.cs_title)
     title_cell.font = banner_font
     title_cell.alignment = banner_align
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=incdec_col)
@@ -425,20 +425,20 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
 
     row += 3
     right_start = max(lowest_col, incdec_col - 2)
-    _sig_slot(row, 1, 3, "Prep By", halign="left")
-    _sig_slot(row, right_start, incdec_col, "Checked by", halign="right")
+    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left")
+    _sig_slot(row, right_start, incdec_col, labels.checked_by_label, halign="right")
 
     row += 3
-    _sig_slot(row, 1, incdec_col, "HEAD QAC (TDA)", halign="center")
+    _sig_slot(row, 1, incdec_col, labels.head_qac_label, halign="center")
 
     row += 3
-    sig_cell = ws.cell(row=row, column=1, value="COUNTERSIGNED")
+    sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=incdec_col)
 
     row += 3
-    _sig_slot(row, 1, incdec_col, "FMSAD (XDS)", halign="center")
+    _sig_slot(row, 1, incdec_col, labels.fmsad_label, halign="center")
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12
@@ -464,7 +464,7 @@ def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     return buffer.getvalue()
 
 
-def export_package_cs_xlsx(cs: "ComparativeStatement") -> bytes:
+def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
     """Render the package-basis comparison: same item list and raw rate
     grid as export_cs_xlsx, but instead of picking the lowest rate per
     item, ranks each supplier's TOTAL across every item (cs.package_totals)
@@ -486,7 +486,7 @@ def export_package_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     banner_align = Alignment(horizontal="center", vertical="center")
     banner_font = Font(bold=True, size=10)
 
-    title_cell = ws.cell(row=1, column=1, value="COMPARATIVE STATEMENT (PACKAGE BASIS)")
+    title_cell = ws.cell(row=1, column=1, value=f"{labels.cs_title} (PACKAGE BASIS)")
     title_cell.font = banner_font
     title_cell.alignment = banner_align
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
@@ -575,17 +575,23 @@ def export_package_cs_xlsx(cs: "ComparativeStatement") -> bytes:
 
     row += 3
     right_start = max(4, last_col - 2)
-    _sig_slot(row, 1, 3, "Prep By", halign="left")
-    _sig_slot(row, right_start, last_col, "Checked by", halign="right")
+    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left")
+    _sig_slot(row, right_start, last_col, labels.checked_by_label, halign="right")
 
     row += 3
-    _sig_slot(row, 1, last_col, "HEAD QAC (TDA)", halign="center")
+    _sig_slot(row, 1, last_col, labels.head_qac_label, halign="center")
 
     row += 3
-    sig_cell = ws.cell(row=row, column=1, value="COUNTERSIGNED")
+    sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
+
+    # The item-wise export also has an FMSAD line below COUNTERSIGNED -
+    # matched here for consistency, since both are "comparative statement"
+    # variants meant for the same sign-off process.
+    row += 3
+    _sig_slot(row, 1, last_col, labels.fmsad_label, halign="center")
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12

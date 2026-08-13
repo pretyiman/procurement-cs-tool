@@ -100,6 +100,22 @@ constants in `docx_export.py` - these are policy numbers a procurement
 office may legitimately need to change (e.g. a deposit-waiver threshold)
 without a code deploy.
 
+### DocumentLabels (singleton settings row, always id=1)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | always 1 - get_document_labels() (app/document_labels.py) get-or-creates this row |
+| cs_title | text, default "COMPARATIVE STATEMENT" | CS Excel export title banner (package export appends " (PACKAGE BASIS)") |
+| prep_by_label | text, default "Prep By" | CS export signature block |
+| checked_by_label | text, default "Checked by" | CS export signature block |
+| head_qac_label | text, default "HEAD QAC (TDA)" | CS export signature block |
+| countersigned_label | text, default "COUNTERSIGNED" | CS export signature block |
+| fmsad_label | text, default "FMSAD (XDS)" | CS export signature block |
+
+Editable via `/settings/cs-labels` instead of being hardcoded strings in
+`excel_io.py` - both `export_cs_xlsx` and `export_package_cs_xlsx` take
+these as a required `labels` argument, so a role/title change never
+needs a code change.
+
 ## Derived (never stored, always computed)
 
 - **Lowest rate / lowest firm per item** = min(rate) across quotes where

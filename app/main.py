@@ -17,6 +17,7 @@ from .award_engine import build_purchase_proposal, resolve_awarded_items, valida
 from .business_rules import get_business_rules
 from .cs_engine import build_comparative_statement
 from .db import create_db_and_tables, get_session
+from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
 from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
@@ -42,7 +43,6 @@ from .excel_io import (
     import_tender,
 )
 from .models import (
-    BusinessRules,
     Department,
     Item,
     ItemMaster,
@@ -581,7 +581,8 @@ def export_cs(tender_id: int, session: Session = Depends(get_session)):
     if tender is None:
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
-    content = export_cs_xlsx(cs)
+    labels = get_document_labels(session)
+    content = export_cs_xlsx(cs, labels)
     filename = f"comparative-statement-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -615,7 +616,8 @@ def export_package_cs(tender_id: int, session: Session = Depends(get_session)):
     if tender is None:
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
-    content = export_package_cs_xlsx(cs)
+    labels = get_document_labels(session)
+    content = export_package_cs_xlsx(cs, labels)
     filename = f"comparative-statement-package-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -1188,3 +1190,31 @@ def restore_template(name: str):
         raise HTTPException(404, "Unknown template")
     restore_default_template(name)
     return RedirectResponse("/settings/templates?saved=1", status_code=303)
+
+
+@app.get("/settings/cs-labels", response_class=HTMLResponse)
+def cs_labels_form(request: Request, saved: str = "", session: Session = Depends(get_session)):
+    labels = get_document_labels(session)
+    return templates.TemplateResponse(request, "cs_labels.html", {"labels": labels, "saved": bool(saved)})
+
+
+@app.post("/settings/cs-labels")
+def update_cs_labels(
+    cs_title: str = Form(...),
+    prep_by_label: str = Form(...),
+    checked_by_label: str = Form(...),
+    head_qac_label: str = Form(...),
+    countersigned_label: str = Form(...),
+    fmsad_label: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    labels = get_document_labels(session)
+    labels.cs_title = cs_title.strip() or labels.cs_title
+    labels.prep_by_label = prep_by_label.strip()
+    labels.checked_by_label = checked_by_label.strip()
+    labels.head_qac_label = head_qac_label.strip()
+    labels.countersigned_label = countersigned_label.strip()
+    labels.fmsad_label = fmsad_label.strip()
+    session.add(labels)
+    session.commit()
+    return RedirectResponse("/settings/cs-labels?saved=1", status_code=303)

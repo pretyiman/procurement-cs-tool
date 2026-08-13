@@ -128,6 +128,23 @@ class BusinessRules(SQLModel, table=True):
     stamp_duty_percent: float = 0.25
 
 
+class DocumentLabels(SQLModel, table=True):
+    """Singleton settings row (always id=1) for the static title/
+    signature-block text on the CS Excel export - previously hardcoded
+    strings in excel_io.py. Same role signatures as the original CS.xlsx
+    (see excel_io.py's _sig_slot), just editable without a code change."""
+
+    __tablename__ = "document_labels"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    cs_title: str = "COMPARATIVE STATEMENT"
+    prep_by_label: str = "Prep By"
+    checked_by_label: str = "Checked by"
+    head_qac_label: str = "HEAD QAC (TDA)"
+    countersigned_label: str = "COUNTERSIGNED"
+    fmsad_label: str = "FMSAD (XDS)"
+
+
 class TenderTemplateItem(SQLModel, table=True):
     __tablename__ = "tender_template_item"
 

@@ -15,9 +15,10 @@ from app.excel_io import (
     export_supplier_list_xlsx,
     import_tender,
 )
-from app.models import Department, Item, ItemMaster, Quote, Supplier, TaxType, Tender
+from app.models import Department, DocumentLabels, Item, ItemMaster, Quote, Supplier, TaxType, Tender
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
+DEFAULT_LABELS = DocumentLabels()
 
 
 def _fresh_session() -> Session:
@@ -114,7 +115,7 @@ def test_exported_cs_round_trips_through_the_apps_own_importer():
     with _fresh_session() as original_session:
         original_tender = import_tender(CS_XLSX_PATH, original_session)
         cs = build_comparative_statement(original_session, original_tender.id)
-        exported_bytes = export_cs_xlsx(cs)
+        exported_bytes = export_cs_xlsx(cs, DEFAULT_LABELS)
 
     with _fresh_session() as reimport_session:
         reimported_tender = import_tender(BytesIO(exported_bytes), reimport_session)
@@ -161,7 +162,7 @@ def test_pst_tender_computes_and_round_trips_correctly():
         assert sns.tax_amount == pytest.approx(209655 * 0.15)
         assert sns.contract_value == pytest.approx(209655 * 1.15)
 
-        exported_bytes = export_cs_xlsx(cs)
+        exported_bytes = export_cs_xlsx(cs, DEFAULT_LABELS)
 
     with _fresh_session() as reimport_session:
         reimported_tender = import_tender(BytesIO(exported_bytes), reimport_session)
@@ -175,7 +176,7 @@ def test_package_export_opens_and_lists_ranked_supplier_totals():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
         cs = build_comparative_statement(session, tender.id)
-        exported_bytes = export_package_cs_xlsx(cs)
+        exported_bytes = export_package_cs_xlsx(cs, DEFAULT_LABELS)
 
     wb = load_workbook(BytesIO(exported_bytes))
     ws = wb.active
@@ -262,3 +263,39 @@ def test_rfq_item_list_export_handles_slash_in_inquiry_no():
     assert "/" not in ws.title
     all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
     assert any("PROC/2026/204" in str(v) for v in all_values)
+
+
+def test_custom_labels_appear_in_both_cs_exports_instead_of_defaults():
+    from openpyxl import load_workbook
+
+    custom = DocumentLabels(
+        cs_title="CUSTOM TITLE BANNER",
+        prep_by_label="Drafted by",
+        checked_by_label="Reviewed by",
+        head_qac_label="Custom Head Role",
+        countersigned_label="CUSTOM COUNTERSIGN",
+        fmsad_label="Custom Final Approver",
+    )
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        cs = build_comparative_statement(session, tender.id)
+
+        item_wise_values = [
+            c.value for row in load_workbook(BytesIO(export_cs_xlsx(cs, custom))).active.iter_rows() for c in row
+        ]
+        package_values = [
+            c.value
+            for row in load_workbook(BytesIO(export_package_cs_xlsx(cs, custom))).active.iter_rows()
+            for c in row
+        ]
+
+    for values in (item_wise_values, package_values):
+        assert any("CUSTOM TITLE BANNER" in str(v) for v in values if v)
+        assert "Drafted by" in values
+        assert "Reviewed by" in values
+        assert "Custom Head Role" in values
+        assert "CUSTOM COUNTERSIGN" in values
+        assert "Custom Final Approver" in values
+        # None of the old hardcoded defaults should leak through.
+        assert "Prep By" not in values
+        assert "FMSAD (XDS)" not in values

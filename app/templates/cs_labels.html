@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Settings - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>CS Title &amp; Signature Labels</h1>
+<p class="muted">
+  <a href="/settings/business-rules">Business Rules</a> &middot; <a href="/settings/templates">Document Templates</a> &middot; <strong>CS Labels</strong>
+</p>
+<p class="muted">The title banner and signature-block role names on the Comparative Statement Excel export (both the item-wise and package versions). Change these here instead of editing code - useful for things like a role/title change that doesn't warrant touching the export logic itself.</p>
+
+{% if saved %}
+<div class="card notice-exists"><strong>Saved.</strong> New CS exports will use these labels.</div>
+{% endif %}
+
+<div class="card" style="max-width:520px">
+  <form method="post" action="/settings/cs-labels">
+    <div class="field">
+      <label for="cs_title">Title banner</label>
+      <input type="text" id="cs_title" name="cs_title" value="{{ labels.cs_title }}" required>
+    </div>
+    <div class="field">
+      <label for="prep_by_label">"Prepared by" role label</label>
+      <input type="text" id="prep_by_label" name="prep_by_label" value="{{ labels.prep_by_label }}" required>
+    </div>
+    <div class="field">
+      <label for="checked_by_label">"Checked by" role label</label>
+      <input type="text" id="checked_by_label" name="checked_by_label" value="{{ labels.checked_by_label }}" required>
+    </div>
+    <div class="field">
+      <label for="head_qac_label">Head-of-department role label</label>
+      <input type="text" id="head_qac_label" name="head_qac_label" value="{{ labels.head_qac_label }}" required>
+    </div>
+    <div class="field">
+      <label for="countersigned_label">Countersignature label</label>
+      <input type="text" id="countersigned_label" name="countersigned_label" value="{{ labels.countersigned_label }}" required>
+    </div>
+    <div class="field">
+      <label for="fmsad_label">Final approver role label</label>
+      <input type="text" id="fmsad_label" name="fmsad_label" value="{{ labels.fmsad_label }}" required>
+    </div>
+    <button type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

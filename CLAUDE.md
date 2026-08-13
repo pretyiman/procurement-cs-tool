@@ -76,6 +76,11 @@ app/
                                            # row (security deposit/stamp duty %),
                                            # editable at /settings/business-rules
                                            # instead of hardcoded in docx_export.py
+  document_labels.py                        # get-or-create singleton
+                                             # DocumentLabels row (CS export title +
+                                             # signature-block role names), editable
+                                             # at /settings/cs-labels instead of
+                                             # hardcoded in excel_io.py
   template_manager.py                       # Settings > Document Templates:
                                              # download/upload/restore pp_template.docx
                                              # and ca_template.docx from the browser,
@@ -106,6 +111,8 @@ app/
                                         # stamp-duty % used in Contract Award docs
     document_templates.html              # "/settings/templates" — download/upload/
                                           # restore PP/CA docx templates
+    cs_labels.html                         # "/settings/cs-labels" — CS export title/
+                                            # signature-block role names
     tenders_list.html                # "/tenders" — list/create/import
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt
