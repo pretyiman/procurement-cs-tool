@@ -6,8 +6,16 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.cs_engine import build_comparative_statement
-from app.excel_io import export_cs_xlsx, export_package_cs_xlsx, import_tender
-from app.models import Item, ItemMaster, Quote, Supplier, TaxType
+from app.excel_io import (
+    export_cs_xlsx,
+    export_department_list_xlsx,
+    export_item_catalog_xlsx,
+    export_package_cs_xlsx,
+    export_rfq_item_list_xlsx,
+    export_supplier_list_xlsx,
+    import_tender,
+)
+from app.models import Department, Item, ItemMaster, Quote, Supplier, TaxType, Tender
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
 
@@ -180,3 +188,77 @@ def test_package_export_opens_and_lists_ranked_supplier_totals():
     # in the package totals section, ranked/eligible-flagged.
     for supplier in cs.suppliers_by_id.values():
         assert supplier.name in all_values
+
+
+def test_item_catalog_export_lists_part_no_description_unit():
+    from openpyxl import load_workbook
+
+    items = [
+        ItemMaster(id=1, part_no="A-1", description="Widget", default_unit="Nos"),
+        ItemMaster(id=2, part_no="A-2", description="Gadget", default_unit="Kg"),
+    ]
+    wb = load_workbook(BytesIO(export_item_catalog_xlsx(items)))
+    ws = wb.active
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert "A-1" in all_values and "Widget" in all_values and "Nos" in all_values
+    assert "A-2" in all_values and "Gadget" in all_values and "Kg" in all_values
+
+
+def test_supplier_list_export_lists_contact_details():
+    from openpyxl import load_workbook
+
+    suppliers = [Supplier(id=1, name="M/s Test Co", phone="12345", email="a@b.com")]
+    wb = load_workbook(BytesIO(export_supplier_list_xlsx(suppliers)))
+    ws = wb.active
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert "M/s Test Co" in all_values
+    assert "12345" in all_values
+    assert "a@b.com" in all_values
+
+
+def test_department_list_export_lists_names():
+    from openpyxl import load_workbook
+
+    departments = [Department(id=1, name="Finance"), Department(id=2, name="Admin")]
+    wb = load_workbook(BytesIO(export_department_list_xlsx(departments)))
+    ws = wb.active
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert "Finance" in all_values
+    assert "Admin" in all_values
+
+
+def test_rfq_item_list_export_has_no_pricing_columns():
+    from openpyxl import load_workbook
+
+    with _fresh_session() as session:
+        tender = Tender(id=1, inquiry_no="RFQ-1")
+        session.add(tender)
+        im = ItemMaster(part_no="A-1", description="Widget", default_unit="Nos")
+        session.add(im)
+        session.flush()
+        item = Item(tender_id=1, item_master_id=im.id, ser=1, qty=10)
+        session.add(item)
+        session.commit()
+
+        items = session.exec(select(Item).where(Item.tender_id == 1)).all()
+        wb = load_workbook(BytesIO(export_rfq_item_list_xlsx(tender, items)))
+
+    ws = wb.active
+    header_row = [c.value for c in ws[3]]
+    assert header_row == ["Ser", "Part No", "Description", "Unit", "Qty"]
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert "RFQ-1" in "".join(str(v) for v in all_values)  # title banner has the inquiry no
+
+
+def test_rfq_item_list_export_handles_slash_in_inquiry_no():
+    """Real inquiry numbers look like "PROC/2026/204" - Excel forbids
+    \\ / ? * [ ] : in a sheet name, so the raw inquiry_no can't be used for
+    ws.title directly even though it's fine in the banner cell."""
+    from openpyxl import load_workbook
+
+    tender = Tender(id=1, inquiry_no="PROC/2026/204")
+    wb = load_workbook(BytesIO(export_rfq_item_list_xlsx(tender, [])))
+    ws = wb.active
+    assert "/" not in ws.title
+    all_values = [cell.value for row in ws.iter_rows() for cell in row if cell.value is not None]
+    assert any("PROC/2026/204" in str(v) for v in all_values)

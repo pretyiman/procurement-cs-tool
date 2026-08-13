@@ -31,6 +31,7 @@
 </div>
 
 <h2>Catalog ({{ departments|length }})</h2>
+<p><a class="btn btn-secondary" href="/departments/export{{ '?q=' ~ q if q else '' }}">Download Departments List</a></p>
 <div class="card" style="overflow-x:auto">
   {% if departments %}
   <table>

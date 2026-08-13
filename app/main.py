@@ -21,8 +21,12 @@ from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .excel_io import (
     export_cs_xlsx,
+    export_department_list_xlsx,
+    export_item_catalog_xlsx,
     export_package_cs_xlsx,
     export_purchase_proposal_xlsx,
+    export_rfq_item_list_xlsx,
+    export_supplier_list_xlsx,
     get_or_create_department,
     get_or_create_item_master,
     get_or_create_supplier,
@@ -112,6 +116,21 @@ def items_catalog(
     )
 
 
+@app.get("/items/export")
+def export_items(q: str = "", session: Session = Depends(get_session)):
+    catalog = session.exec(select(ItemMaster)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        catalog = [im for im in catalog if needle in im.part_no.lower() or needle in im.description.lower()]
+    catalog.sort(key=lambda im: (im.part_no, im.description))
+    content = export_item_catalog_xlsx(catalog)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="item-catalog.xlsx"'},
+    )
+
+
 @app.post("/items")
 def create_item(
     part_no: str = Form(""),
@@ -170,6 +189,20 @@ def departments_catalog(
     )
 
 
+@app.get("/departments/export")
+def export_departments(q: str = "", session: Session = Depends(get_session)):
+    departments = session.exec(select(Department).order_by(Department.name)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        departments = [d for d in departments if needle in d.name.lower()]
+    content = export_department_list_xlsx(departments)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="departments.xlsx"'},
+    )
+
+
 @app.post("/departments")
 def create_department(name: str = Form(...), session: Session = Depends(get_session)):
     if not name.strip():
@@ -207,6 +240,24 @@ def suppliers_catalog(
         suppliers = [s for s in suppliers if needle in s.name.lower()]
     return templates.TemplateResponse(
         request, "suppliers.html", {"suppliers": suppliers, "q": q, "notice": notice, "notice_name": name}
+    )
+
+
+@app.get("/suppliers/export")
+def export_suppliers(q: str = "", session: Session = Depends(get_session)):
+    # Registered before /suppliers/{supplier_id} - both are unconstrained
+    # path segments at the routing layer, so "export" would otherwise
+    # match the int supplier_id route first and 422 (order matters here,
+    # not just the int type hint).
+    suppliers = session.exec(select(Supplier).order_by(Supplier.name)).all()
+    if q.strip():
+        needle = q.strip().lower()
+        suppliers = [s for s in suppliers if needle in s.name.lower()]
+    content = export_supplier_list_xlsx(suppliers)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="suppliers.xlsx"'},
     )
 
 
@@ -514,6 +565,25 @@ def export_cs(tender_id: int, session: Session = Depends(get_session)):
     cs = build_comparative_statement(session, tender_id)
     content = export_cs_xlsx(cs)
     filename = f"comparative-statement-tender-{tender_id}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/tenders/{tender_id}/export-items")
+def export_rfq_items(tender_id: int, session: Session = Depends(get_session)):
+    """Just the RFQ's own item list - no pricing. This is what the RFQ item
+    page's own Download button uses now; the full comparative statement
+    (with rates/lowest-firm) lives on Quote Entry's Download CS instead,
+    since that's the only page that actually has pricing data to show."""
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
+    content = export_rfq_item_list_xlsx(tender, items)
+    filename = f"rfq-item-list-{tender_id}.xlsx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

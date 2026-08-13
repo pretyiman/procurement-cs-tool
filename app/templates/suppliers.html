@@ -46,6 +46,7 @@
 </div>
 
 <h2>Suppliers ({{ suppliers|length }})</h2>
+<p><a class="btn btn-secondary" href="/suppliers/export{{ '?q=' ~ q if q else '' }}">Download Suppliers List</a></p>
 <div class="card" style="overflow-x:auto">
   {% if suppliers %}
   <table>

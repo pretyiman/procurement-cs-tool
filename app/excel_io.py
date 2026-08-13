@@ -207,6 +207,72 @@ def import_tender(path: Union[str, Path], session: Session) -> Tender:
     return tender
 
 
+def _simple_list_workbook(title: str, headers: list, rows: list) -> bytes:
+    """Shared shape for the plain catalog/list exports below: a bold title
+    banner merged across the columns, bold headers, sized columns, no
+    pricing/signature-block machinery - those belong to the CS exports."""
+    wb = Workbook()
+    ws = wb.active
+    # Excel sheet names can't contain \ / ? * [ ] : and are capped at 31
+    # chars - the banner cell below keeps the real, unsanitized title.
+    sheet_name = re.sub(r'[\\/?*\[\]:]', "-", title)[:31]
+    ws.title = sheet_name
+    bold = Font(bold=True)
+
+    title_cell = ws.cell(row=1, column=1, value=title)
+    title_cell.font = Font(bold=True, size=13)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+
+    for col, label in enumerate(headers, start=1):
+        cell = ws.cell(row=3, column=col, value=label)
+        cell.font = bold
+
+    row_idx = 4
+    for row_values in rows:
+        for col, value in enumerate(row_values, start=1):
+            ws.cell(row=row_idx, column=col, value=value)
+        row_idx += 1
+
+    for col in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 22
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def export_item_catalog_xlsx(items: list[ItemMaster]) -> bytes:
+    rows = [(im.part_no, im.description, im.default_unit) for im in items]
+    return _simple_list_workbook("Item Catalog", ["Part No", "Description", "Unit"], rows)
+
+
+def export_supplier_list_xlsx(suppliers: list[Supplier]) -> bytes:
+    rows = [
+        (s.name, s.contact_person or "", s.phone or "", s.email or "", s.address or "", s.tax_no or "")
+        for s in suppliers
+    ]
+    return _simple_list_workbook(
+        "Suppliers", ["Name", "Contact Person", "Phone", "Email", "Address", "Tax No"], rows
+    )
+
+
+def export_department_list_xlsx(departments: list[Department]) -> bytes:
+    rows = [(d.name,) for d in departments]
+    return _simple_list_workbook("Departments", ["Name"], rows)
+
+
+def export_rfq_item_list_xlsx(tender: Tender, items: list[Item]) -> bytes:
+    """Just the RFQ's own item list (Ser/Part No/Description/Unit/Qty) -
+    no pricing, matching what the RFQ item page itself shows now that
+    suppliers/rates were moved off it to Quote Entry."""
+    title = f"RFQ Item List - {tender.inquiry_no}"
+    rows = [
+        (item.ser, item.item_master.part_no, item.item_master.description, item.item_master.default_unit, item.qty)
+        for item in items
+    ]
+    return _simple_list_workbook(title, ["Ser", "Part No", "Description", "Unit", "Qty"], rows)
+
+
 def export_cs_xlsx(cs: "ComparativeStatement") -> bytes:
     """Render a ComparativeStatement (app/cs_engine.py) as an .xlsx workbook
     shaped like the original CS.xlsx: Ser/Part No/Description/A-U/Qty, one
