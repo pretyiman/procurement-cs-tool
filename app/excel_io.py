@@ -273,7 +273,7 @@ def export_rfq_item_list_xlsx(tender: Tender, items: list[Item]) -> bytes:
     return _simple_list_workbook(title, ["Ser", "Part No", "Description", "Unit", "Qty"], rows)
 
 
-def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
+def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fields: dict = None) -> bytes:
     """Render a ComparativeStatement (app/cs_engine.py) as an .xlsx workbook
     shaped like the original CS.xlsx: Ser/Part No/Description/A-U/Qty, one
     rate column per supplier, Lowest Firm/Rate/Total Value, LPR/Inc-Dec%,
@@ -281,6 +281,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
     app's own import_tender() can re-parse it (see
     test_reexporting_and_reimporting_round_trips_correctly) - not just a
     one-way report."""
+    custom_fields = custom_fields or {}
     wb = Workbook()
     ws = wb.active
     ws.title = "Comparative Statement"
@@ -411,7 +412,9 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
     # PP/CA Word templates), so this reproduces it with ordinary bordered
     # cells: a blank line for the real approver to sign, with only the
     # standing role label kept, not the dummy name.
-    def _sig_slot(line_row: int, col_start: int, col_end: int, label: str, halign: str) -> None:
+    def _sig_slot(
+        line_row: int, col_start: int, col_end: int, label: str, halign: str, designation: str = ""
+    ) -> None:
         bottom_border = Border(bottom=Side(style="thin"))
         for c in range(col_start, col_end + 1):
             ws.cell(row=line_row, column=c).border = bottom_border
@@ -422,23 +425,43 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
         label_cell.alignment = Alignment(horizontal=halign, vertical="center")
         if col_end > col_start:
             ws.merge_cells(start_row=line_row + 1, start_column=col_start, end_row=line_row + 1, end_column=col_end)
+        if designation:
+            # Optional second line under the role label - e.g. "Junior
+            # Clerk (BS-11)" - sourced from a Custom Field (Settings), see
+            # custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS. Blank/omitted if
+            # that custom field was never set, matching the original
+            # layout exactly.
+            designation_cell = ws.cell(row=line_row + 2, column=col_start, value=designation)
+            designation_cell.font = Font(size=8, italic=True)
+            designation_cell.alignment = Alignment(horizontal=halign, vertical="center")
+            if col_end > col_start:
+                ws.merge_cells(start_row=line_row + 2, start_column=col_start, end_row=line_row + 2, end_column=col_end)
 
     row += 3
     right_start = max(lowest_col, incdec_col - 2)
-    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left")
-    _sig_slot(row, right_start, incdec_col, labels.checked_by_label, halign="right")
+    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left", designation=custom_fields.get("prep_by_designation", ""))
+    _sig_slot(
+        row, right_start, incdec_col, labels.checked_by_label, halign="right",
+        designation=custom_fields.get("checked_by_designation", ""),
+    )
 
-    row += 3
-    _sig_slot(row, 1, incdec_col, labels.head_qac_label, halign="center")
+    row += 4
+    _sig_slot(
+        row, 1, incdec_col, labels.head_qac_label, halign="center",
+        designation=custom_fields.get("head_qac_designation", ""),
+    )
 
-    row += 3
+    row += 4
     sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=incdec_col)
 
     row += 3
-    _sig_slot(row, 1, incdec_col, labels.fmsad_label, halign="center")
+    _sig_slot(
+        row, 1, incdec_col, labels.fmsad_label, halign="center",
+        designation=custom_fields.get("fmsad_designation", ""),
+    )
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12
@@ -464,13 +487,14 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
     return buffer.getvalue()
 
 
-def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -> bytes:
+def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fields: dict = None) -> bytes:
     """Render the package-basis comparison: same item list and raw rate
     grid as export_cs_xlsx, but instead of picking the lowest rate per
     item, ranks each supplier's TOTAL across every item (cs.package_totals)
     - the whole-package-to-one-firm alternative to item-by-item awarding.
     Only a supplier who quoted every item is a real package candidate;
     others are listed but not eligible."""
+    custom_fields = custom_fields or {}
     wb = Workbook()
     ws = wb.active
     ws.title = "Package Comparison"
@@ -561,7 +585,9 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -
         row += 1
 
     # Signature/approval block, same convention as export_cs_xlsx.
-    def _sig_slot(line_row: int, col_start: int, col_end: int, label: str, halign: str) -> None:
+    def _sig_slot(
+        line_row: int, col_start: int, col_end: int, label: str, halign: str, designation: str = ""
+    ) -> None:
         bottom_border = Border(bottom=Side(style="thin"))
         for c in range(col_start, col_end + 1):
             ws.cell(row=line_row, column=c).border = bottom_border
@@ -572,16 +598,28 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -
         label_cell.alignment = Alignment(horizontal=halign, vertical="center")
         if col_end > col_start:
             ws.merge_cells(start_row=line_row + 1, start_column=col_start, end_row=line_row + 1, end_column=col_end)
+        if designation:
+            designation_cell = ws.cell(row=line_row + 2, column=col_start, value=designation)
+            designation_cell.font = Font(size=8, italic=True)
+            designation_cell.alignment = Alignment(horizontal=halign, vertical="center")
+            if col_end > col_start:
+                ws.merge_cells(start_row=line_row + 2, start_column=col_start, end_row=line_row + 2, end_column=col_end)
 
     row += 3
     right_start = max(4, last_col - 2)
-    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left")
-    _sig_slot(row, right_start, last_col, labels.checked_by_label, halign="right")
+    _sig_slot(row, 1, 3, labels.prep_by_label, halign="left", designation=custom_fields.get("prep_by_designation", ""))
+    _sig_slot(
+        row, right_start, last_col, labels.checked_by_label, halign="right",
+        designation=custom_fields.get("checked_by_designation", ""),
+    )
 
-    row += 3
-    _sig_slot(row, 1, last_col, labels.head_qac_label, halign="center")
+    row += 4
+    _sig_slot(
+        row, 1, last_col, labels.head_qac_label, halign="center",
+        designation=custom_fields.get("head_qac_designation", ""),
+    )
 
-    row += 3
+    row += 4
     sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -591,7 +629,10 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels) -
     # matched here for consistency, since both are "comparative statement"
     # variants meant for the same sign-off process.
     row += 3
-    _sig_slot(row, 1, last_col, labels.fmsad_label, halign="center")
+    _sig_slot(
+        row, 1, last_col, labels.fmsad_label, halign="center",
+        designation=custom_fields.get("fmsad_designation", ""),
+    )
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 12

@@ -145,6 +145,23 @@ class DocumentLabels(SQLModel, table=True):
     fmsad_label: str = "FMSAD (XDS)"
 
 
+class CustomField(SQLModel, table=True):
+    """Admin-defined name/value text pairs (NOT a singleton - there can be
+    any number of these), usable as {{ tag_name }} in the PP/CA Word
+    templates and, for a handful of recognised names (see
+    custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS), as designation lines
+    under a role on the CS Excel signature block. Exists so a genuinely
+    new static field (e.g. a signatory's designation/rank) never needs a
+    new DB column/code change - see app/custom_fields.py."""
+
+    __tablename__ = "custom_field"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tag_name: str = Field(index=True, unique=True)
+    label: str  # human-readable description shown in the settings UI
+    value: str = ""
+
+
 class TenderTemplateItem(SQLModel, table=True):
     __tablename__ = "tender_template_item"
 

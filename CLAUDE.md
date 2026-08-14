@@ -62,7 +62,7 @@ app/
   main.py                # FastAPI app + all routes
   models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote,
                            # Department, TenderTemplate/TenderTemplateItem,
-                           # BusinessRules
+                           # BusinessRules, DocumentLabels, CustomField
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
@@ -81,6 +81,16 @@ app/
                                              # signature-block role names), editable
                                              # at /settings/cs-labels instead of
                                              # hardcoded in excel_io.py
+  custom_fields.py                            # admin-defined name/value text
+                                               # fields (/settings/custom-fields) -
+                                               # merged into PP/CA Word template
+                                               # context as {{ tag_name }}, and a
+                                               # recognised few picked up as CS
+                                               # Excel signature-block designation
+                                               # lines. Real per-contract data
+                                               # always overrides a same-named
+                                               # field; reserved names blocked at
+                                               # creation (RESERVED_TAG_NAMES)
   template_manager.py                       # Settings > Document Templates:
                                              # download/upload/restore pp_template.docx
                                              # and ca_template.docx from the browser,
@@ -113,6 +123,8 @@ app/
                                           # restore PP/CA docx templates
     cs_labels.html                         # "/settings/cs-labels" — CS export title/
                                             # signature-block role names
+    custom_fields.html                       # "/settings/custom-fields" — admin-
+                                              # defined {{ tag }} text fields
     tenders_list.html                # "/tenders" — list/create/import
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt

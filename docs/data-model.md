@@ -116,6 +116,27 @@ Editable via `/settings/cs-labels` instead of being hardcoded strings in
 these as a required `labels` argument, so a role/title change never
 needs a code change.
 
+### CustomField (multiple rows - not a singleton)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| tag_name | text, unique | valid Jinja identifier (lowercase/digits/underscore, no leading digit); reserved names (real computed context keys - see `custom_fields.RESERVED_TAG_NAMES`) are rejected |
+| label | text | human-readable description shown in the Settings UI |
+| value | text | the actual text substituted wherever this tag is used |
+
+Editable via `/settings/custom-fields`. Every field's `tag_name`/`value` is
+merged into the PP/CA Word template context (`docx_export.py`), so
+`{{ tag_name }}` works in `pp_template.docx`/`ca_template.docx` the moment
+a field with that name exists - no code change needed. Real per-contract
+data always overrides a same-named custom field if merged (defense in
+depth on top of the reserved-name check at creation time). A handful of
+recognised names (`prep_by_designation`, `checked_by_designation`,
+`head_qac_designation`, `fmsad_designation` - see
+`custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS`) are also picked up by the
+CS Excel export to show a designation/rank line under the matching
+signature role, since that layout is fixed cells (openpyxl), not
+template-tag-driven like the Word docs.
+
 ## Derived (never stored, always computed)
 
 - **Lowest rate / lowest firm per item** = min(rate) across quotes where

@@ -16,6 +16,14 @@ from sqlmodel import Session, select
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .business_rules import get_business_rules
 from .cs_engine import build_comparative_statement
+from .custom_fields import (
+    SUGGESTED_CS_SIGNATURE_FIELDS,
+    create_custom_field,
+    custom_fields_dict,
+    delete_custom_field,
+    list_custom_fields,
+    update_custom_field,
+)
 from .db import create_db_and_tables, get_session
 from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
@@ -583,7 +591,7 @@ def export_cs(tender_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
     labels = get_document_labels(session)
-    content = export_cs_xlsx(cs, labels)
+    content = export_cs_xlsx(cs, labels, custom_fields_dict(session))
     filename = f"comparative-statement-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -618,7 +626,7 @@ def export_package_cs(tender_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
     labels = get_document_labels(session)
-    content = export_package_cs_xlsx(cs, labels)
+    content = export_package_cs_xlsx(cs, labels, custom_fields_dict(session))
     filename = f"comparative-statement-package-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -1020,7 +1028,10 @@ def download_contract_draft(
         raise HTTPException(400, "This supplier has no items awarded on this tender")
 
     rules = get_business_rules(session)
-    content = generate_contract_award(proposal.tender, group, supplier, contract_no=contract_no, rules=rules)
+    content = generate_contract_award(
+        proposal.tender, group, supplier, contract_no=contract_no, rules=rules,
+        custom_fields=custom_fields_dict(session),
+    )
     filename = f"contract-award-{_safe_filename_part(group.supplier_name)}.docx"
     return Response(
         content=content,
@@ -1040,6 +1051,7 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
         raise HTTPException(400, "No items have been awarded to any firm yet")
 
     rules = get_business_rules(session)
+    fields = custom_fields_dict(session)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for group in proposal.firm_groups:
@@ -1048,7 +1060,8 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
             # reasonable auto-generated placeholder, editable in Word after.
             auto_contract_no = f"{tender.inquiry_no} / {group.supplier_name}"
             content = generate_contract_award(
-                proposal.tender, group, supplier, contract_no=auto_contract_no, rules=rules
+                proposal.tender, group, supplier, contract_no=auto_contract_no, rules=rules,
+                custom_fields=fields,
             )
             zf.writestr(f"contract-award-{_safe_filename_part(group.supplier_name)}.docx", content)
 
@@ -1106,7 +1119,9 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
     if not proposal.firm_groups:
         raise HTTPException(400, "No items have been awarded to any firm yet")
 
-    content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+    content = generate_purchase_proposal_doc(
+        proposal.tender, proposal, cs.suppliers_by_id, custom_fields=custom_fields_dict(session)
+    )
     filename = f"purchase-proposal-tender-{tender_id}.docx"
     return Response(
         content=content,
@@ -1225,3 +1240,53 @@ def update_cs_labels(
     session.add(labels)
     session.commit()
     return RedirectResponse("/settings/cs-labels?saved=1", status_code=303)
+
+
+@app.get("/settings/custom-fields", response_class=HTMLResponse)
+def custom_fields_form(request: Request, error: str = "", saved: str = "", session: Session = Depends(get_session)):
+    fields = list_custom_fields(session)
+    used_suggestions = {f.tag_name for f in fields}
+    suggestions = [
+        {"tag_name": name, "description": desc}
+        for name, desc in SUGGESTED_CS_SIGNATURE_FIELDS.items()
+        if name not in used_suggestions
+    ]
+    return templates.TemplateResponse(
+        request,
+        "custom_fields.html",
+        {"fields": fields, "suggestions": suggestions, "error": error, "saved": bool(saved)},
+    )
+
+
+@app.post("/settings/custom-fields")
+def create_custom_field_route(
+    tag_name: str = Form(...),
+    label: str = Form(...),
+    value: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    try:
+        create_custom_field(session, tag_name, label, value)
+    except ValueError as e:
+        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-fields/{field_id}/update")
+def update_custom_field_route(
+    field_id: int,
+    label: str = Form(...),
+    value: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    try:
+        update_custom_field(session, field_id, label, value)
+    except ValueError as e:
+        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-fields/{field_id}/delete")
+def delete_custom_field_route(field_id: int, session: Session = Depends(get_session)):
+    delete_custom_field(session, field_id)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)

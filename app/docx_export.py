@@ -51,6 +51,7 @@ def generate_contract_award(
     contract_date: Optional[datetime.date] = None,
     agreement_date: Optional[datetime.date] = None,
     template_bytes: Optional[bytes] = None,
+    custom_fields: Optional[dict] = None,
 ) -> bytes:
     contract_date = contract_date or datetime.date.today()
     agreement_date = agreement_date or datetime.date.today()
@@ -100,10 +101,16 @@ def generate_contract_award(
         ],
     }
 
+    # Custom fields (Settings > Custom Fields) are merged in first, real
+    # data second, so real per-contract data always wins even if a custom
+    # field somehow shares a name with it (also blocked at creation time -
+    # see custom_fields.RESERVED_TAG_NAMES).
+    full_context = {**(custom_fields or {}), **context}
+
     doc = DocxTemplate(BytesIO(template_bytes)) if template_bytes is not None else DocxTemplate(
         str(docx_template_path("ca_template.docx"))
     )
-    doc.render(context)
+    doc.render(full_context)
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
@@ -114,6 +121,7 @@ def generate_purchase_proposal_doc(
     proposal: PurchaseProposal,
     suppliers_by_id: dict,
     template_bytes: Optional[bytes] = None,
+    custom_fields: Optional[dict] = None,
 ) -> bytes:
     est_cost = sum(
         ai.item.qty * ai.item.lpr
@@ -162,10 +170,12 @@ def generate_purchase_proposal_doc(
         "grand_contract_value": _money(proposal.grand_total.contract_value),
     }
 
+    full_context = {**(custom_fields or {}), **context}
+
     doc = DocxTemplate(BytesIO(template_bytes)) if template_bytes is not None else DocxTemplate(
         str(docx_template_path("pp_template.docx"))
     )
-    doc.render(context)
+    doc.render(full_context)
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
