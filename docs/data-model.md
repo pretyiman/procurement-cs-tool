@@ -116,21 +116,40 @@ Editable via `/settings/cs-labels` instead of being hardcoded strings in
 these as a required `labels` argument, so a role/title change never
 needs a code change.
 
+### CustomFieldGroup (multiple rows - a department's own tag preset)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| name | text, unique | e.g. "Department A" - admin-chosen label shown in Settings |
+| department_id | int, FK -> Department, unique, nullable | which department this group applies to; unique so a department has at most one group |
+
+Editable via `/settings/custom-fields`. Exists because a flat global
+`CustomField` value can't represent "Department A's initiating officer
+name/designation differs from Department B's" - see `app/custom_fields.py`.
+`custom_fields_dict_for_tender()` resolves a tender's `department_id` to
+its group automatically (no manual per-document selection); a tender with
+no department, or a department with no group, just uses global
+`CustomField` rows as-is.
+
 ### CustomField (multiple rows - not a singleton)
 | field | type | notes |
 |---|---|---|
 | id | int, PK | |
-| tag_name | text, unique | valid Jinja identifier (lowercase/digits/underscore, no leading digit); reserved names (real computed context keys - see `custom_fields.RESERVED_TAG_NAMES`) are rejected |
+| group_id | int, FK -> CustomFieldGroup, nullable | NULL = the plain global value (original behavior); non-null scopes this field to one department's group, overriding the same-named global field only for that department's documents |
+| tag_name | text | valid Jinja identifier (lowercase/digits/underscore, no leading digit); reserved names (real computed context keys - see `custom_fields.RESERVED_TAG_NAMES`) are rejected. Unique per `group_id` (enforced in `app/custom_fields.py`; also a DB constraint `uq_custom_field_group_tag` for the non-null-group case) - the same tag_name can exist once globally *and* once per group, with the group's value winning for that department |
 | label | text | human-readable description shown in the Settings UI |
 | value | text | the actual text substituted wherever this tag is used |
 
 Editable via `/settings/custom-fields`. Every field's `tag_name`/`value` is
-merged into the PP/CA Word template context (`docx_export.py`), so
-`{{ tag_name }}` works in `pp_template.docx`/`ca_template.docx` the moment
-a field with that name exists - no code change needed. Real per-contract
-data always overrides a same-named custom field if merged (defense in
-depth on top of the reserved-name check at creation time). A handful of
-recognised names (`prep_by_designation`, `checked_by_designation`,
+merged into the PP/CA Word template context (`docx_export.py`) and the CS
+Excel export context, so `{{ tag_name }}` works in
+`pp_template.docx`/`ca_template.docx` the moment a field with that name
+exists - no code change needed. A document's context is the global fields
+with its tender's department-group fields (if any) overlaid on top - see
+`custom_fields.custom_fields_dict_for_tender()`. Real per-contract data
+always overrides a same-named custom field if merged (defense in depth on
+top of the reserved-name check at creation time). A handful of recognised
+names (`prep_by_designation`, `checked_by_designation`,
 `head_qac_designation`, `fmsad_designation` - see
 `custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS`) are also picked up by the
 CS Excel export to show a designation/rank line under the matching

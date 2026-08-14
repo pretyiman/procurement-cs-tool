@@ -145,6 +145,24 @@ class DocumentLabels(SQLModel, table=True):
     fmsad_label: str = "FMSAD (XDS)"
 
 
+class CustomFieldGroup(SQLModel, table=True):
+    """A department's own preset of tag values (e.g. Department A's
+    initiating-officer name/designation, receiving store/authority - values
+    that are legitimately different for Department B). Tied 1:1 to a
+    Department so it's picked up automatically from whichever department a
+    tender belongs to - no manual per-document selection step. A tag not
+    set in the group falls back to the plain (ungrouped) CustomField of the
+    same name - see custom_fields.custom_fields_dict."""
+
+    __tablename__ = "custom_field_group"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id", unique=True)
+
+    department: Optional[Department] = Relationship()
+
+
 class CustomField(SQLModel, table=True):
     """Admin-defined name/value text pairs (NOT a singleton - there can be
     any number of these), usable as {{ tag_name }} in the PP/CA Word
@@ -152,14 +170,23 @@ class CustomField(SQLModel, table=True):
     custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS), as designation lines
     under a role on the CS Excel signature block. Exists so a genuinely
     new static field (e.g. a signatory's designation/rank) never needs a
-    new DB column/code change - see app/custom_fields.py."""
+    new DB column/code change - see app/custom_fields.py.
+
+    group_id NULL = the plain global value (today's behavior). A non-null
+    group_id scopes this field to one CustomFieldGroup, overriding the
+    same-named global field only for documents generated under that
+    group's department."""
 
     __tablename__ = "custom_field"
+    __table_args__ = (UniqueConstraint("group_id", "tag_name", name="uq_custom_field_group_tag"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    tag_name: str = Field(index=True, unique=True)
+    group_id: Optional[int] = Field(default=None, foreign_key="custom_field_group.id")
+    tag_name: str = Field(index=True)
     label: str  # human-readable description shown in the settings UI
     value: str = ""
+
+    group: Optional[CustomFieldGroup] = Relationship()
 
 
 class TenderTemplateItem(SQLModel, table=True):

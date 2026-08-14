@@ -13,7 +13,7 @@ from app.db import get_session
 from app.docx_export import generate_contract_award
 from app.excel_io import export_cs_xlsx, import_tender
 from app.main import app
-from app.models import BusinessRules, CustomField, DocumentLabels, Supplier
+from app.models import BusinessRules, CustomField, CustomFieldGroup, Department, DocumentLabels, Supplier, Tender
 
 try:
     from fastapi.testclient import TestClient
@@ -93,6 +93,97 @@ def test_custom_fields_dict_reflects_all_rows():
         custom_fields_module.create_custom_field(session, "a", "A", "1")
         custom_fields_module.create_custom_field(session, "b", "B", "2")
         assert custom_fields_module.custom_fields_dict(session) == {"a": "1", "b": "2"}
+
+
+# --- Custom Field Groups (per-department presets) ----------------------------
+
+
+def test_create_group_requires_a_department():
+    with _fresh_session() as session:
+        with pytest.raises(ValueError):
+            custom_fields_module.create_group(session, "Department A", None)
+
+
+def test_group_is_unique_per_department():
+    with _fresh_session() as session:
+        dept = Department(name="Procurement Section")
+        session.add(dept)
+        session.commit()
+        session.refresh(dept)
+
+        custom_fields_module.create_group(session, "Group One", dept.id)
+        with pytest.raises(ValueError):
+            custom_fields_module.create_group(session, "Group Two", dept.id)  # same department again
+
+
+def test_group_field_overrides_global_field_of_same_tag_name():
+    with _fresh_session() as session:
+        dept_a = Department(name="Department A")
+        dept_b = Department(name="Department B")
+        session.add(dept_a)
+        session.add(dept_b)
+        session.commit()
+        session.refresh(dept_a)
+        session.refresh(dept_b)
+
+        group_a = custom_fields_module.create_group(session, "Department A", dept_a.id)
+        group_b = custom_fields_module.create_group(session, "Department B", dept_b.id)
+
+        custom_fields_module.create_custom_field(session, "initiator_name", "Initiator", "Global Default Name")
+        custom_fields_module.create_custom_field(
+            session, "initiator_name", "Initiator", "Officer From Dept A", group_id=group_a.id
+        )
+        # Same tag_name reused in a second group - must not collide with group_a's row.
+        custom_fields_module.create_custom_field(
+            session, "initiator_name", "Initiator", "Officer From Dept B", group_id=group_b.id
+        )
+
+        assert custom_fields_module.custom_fields_dict(session, group_id=group_a.id)["initiator_name"] == "Officer From Dept A"
+        assert custom_fields_module.custom_fields_dict(session, group_id=group_b.id)["initiator_name"] == "Officer From Dept B"
+        # A tag not overridden in the group still falls back to the global value.
+        custom_fields_module.create_custom_field(session, "receiving_store", "Store", "Main Store")
+        assert custom_fields_module.custom_fields_dict(session, group_id=group_a.id)["receiving_store"] == "Main Store"
+        # No group at all -> plain global value.
+        assert custom_fields_module.custom_fields_dict(session)["initiator_name"] == "Global Default Name"
+
+
+def test_custom_fields_dict_for_tender_resolves_via_department():
+    with _fresh_session() as session:
+        dept = Department(name="Department A")
+        session.add(dept)
+        session.commit()
+        session.refresh(dept)
+
+        group = custom_fields_module.create_group(session, "Department A", dept.id)
+        custom_fields_module.create_custom_field(session, "initiator_name", "Initiator", "Global Name")
+        custom_fields_module.create_custom_field(
+            session, "initiator_name", "Initiator", "Dept A Officer", group_id=group.id
+        )
+
+        tender_with_dept = Tender(inquiry_no="T-1", department_id=dept.id)
+        assert custom_fields_module.custom_fields_dict_for_tender(session, tender_with_dept)["initiator_name"] == "Dept A Officer"
+
+        tender_without_dept = Tender(inquiry_no="T-2")
+        assert custom_fields_module.custom_fields_dict_for_tender(session, tender_without_dept)["initiator_name"] == "Global Name"
+
+        assert custom_fields_module.custom_fields_dict_for_tender(session, None)["initiator_name"] == "Global Name"
+
+
+def test_delete_group_cascades_its_fields():
+    with _fresh_session() as session:
+        dept = Department(name="Department A")
+        session.add(dept)
+        session.commit()
+        session.refresh(dept)
+
+        group = custom_fields_module.create_group(session, "Department A", dept.id)
+        field = custom_fields_module.create_custom_field(
+            session, "initiator_name", "Initiator", "Dept A Officer", group_id=group.id
+        )
+
+        custom_fields_module.delete_group(session, group.id)
+        assert session.get(CustomFieldGroup, group.id) is None
+        assert session.get(CustomField, field.id) is None
 
 
 # --- Word document rendering -------------------------------------------------
@@ -205,6 +296,74 @@ def test_settings_page_rejects_reserved_and_duplicate_names():
 
         with Session(engine) as session:
             assert len(session.exec(select(CustomField)).all()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_settings_page_create_group_add_field_then_delete_group():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            dept_id = dept.id
+
+        resp = client.post(
+            "/settings/custom-field-groups",
+            data={"name": "Department A", "department_id": str(dept_id)},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert "error=" not in resp.headers["location"]
+
+        with Session(engine) as session:
+            group = session.exec(select(CustomFieldGroup)).one()
+            assert group.department_id == dept_id
+
+        resp = client.post(
+            "/settings/custom-fields",
+            data={
+                "tag_name": "initiator_name",
+                "label": "Initiator",
+                "value": "Dept A Officer",
+                "group_id": str(group.id),
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+        resp = client.get("/settings/custom-fields")
+        assert "Dept A Officer" in resp.text
+        assert "Department A" in resp.text
+
+        resp = client.post(f"/settings/custom-field-groups/{group.id}/delete", follow_redirects=False)
+        assert resp.status_code == 303
+        with Session(engine) as session:
+            assert session.exec(select(CustomFieldGroup)).all() == []
+            assert session.exec(select(CustomField)).all() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_settings_page_rejects_second_group_for_same_department():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            dept_id = dept.id
+
+        client.post("/settings/custom-field-groups", data={"name": "Group One", "department_id": str(dept_id)})
+        resp = client.post(
+            "/settings/custom-field-groups",
+            data={"name": "Group Two", "department_id": str(dept_id)},
+            follow_redirects=False,
+        )
+        assert "error=" in resp.headers["location"]
+        with Session(engine) as session:
+            assert len(session.exec(select(CustomFieldGroup)).all()) == 1
     finally:
         app.dependency_overrides.clear()
 

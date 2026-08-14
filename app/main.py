@@ -19,10 +19,14 @@ from .cs_engine import build_comparative_statement
 from .custom_fields import (
     SUGGESTED_CS_SIGNATURE_FIELDS,
     create_custom_field,
-    custom_fields_dict,
+    create_group,
+    custom_fields_dict_for_tender,
     delete_custom_field,
+    delete_group,
     list_custom_fields,
+    list_groups,
     update_custom_field,
+    update_group,
 )
 from .db import create_db_and_tables, get_session
 from .document_labels import get_document_labels
@@ -591,7 +595,7 @@ def export_cs(tender_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
     labels = get_document_labels(session)
-    content = export_cs_xlsx(cs, labels, custom_fields_dict(session))
+    content = export_cs_xlsx(cs, labels, custom_fields_dict_for_tender(session, tender))
     filename = f"comparative-statement-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -626,7 +630,7 @@ def export_package_cs(tender_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Tender not found")
     cs = build_comparative_statement(session, tender_id)
     labels = get_document_labels(session)
-    content = export_package_cs_xlsx(cs, labels, custom_fields_dict(session))
+    content = export_package_cs_xlsx(cs, labels, custom_fields_dict_for_tender(session, tender))
     filename = f"comparative-statement-package-tender-{tender_id}.xlsx"
     return Response(
         content=content,
@@ -1030,7 +1034,7 @@ def download_contract_draft(
     rules = get_business_rules(session)
     content = generate_contract_award(
         proposal.tender, group, supplier, contract_no=contract_no, rules=rules,
-        custom_fields=custom_fields_dict(session),
+        custom_fields=custom_fields_dict_for_tender(session, tender),
     )
     filename = f"contract-award-{_safe_filename_part(group.supplier_name)}.docx"
     return Response(
@@ -1051,7 +1055,7 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
         raise HTTPException(400, "No items have been awarded to any firm yet")
 
     rules = get_business_rules(session)
-    fields = custom_fields_dict(session)
+    fields = custom_fields_dict_for_tender(session, tender)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for group in proposal.firm_groups:
@@ -1120,7 +1124,7 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
         raise HTTPException(400, "No items have been awarded to any firm yet")
 
     content = generate_purchase_proposal_doc(
-        proposal.tender, proposal, cs.suppliers_by_id, custom_fields=custom_fields_dict(session)
+        proposal.tender, proposal, cs.suppliers_by_id, custom_fields=custom_fields_dict_for_tender(session, tender)
     )
     filename = f"purchase-proposal-tender-{tender_id}.docx"
     return Response(
@@ -1251,10 +1255,22 @@ def custom_fields_form(request: Request, error: str = "", saved: str = "", sessi
         for name, desc in SUGGESTED_CS_SIGNATURE_FIELDS.items()
         if name not in used_suggestions
     ]
+    groups = list_groups(session)
+    groups_view = [{"group": g, "fields": list_custom_fields(session, group_id=g.id)} for g in groups]
+    grouped_department_ids = {g.department_id for g in groups}
+    all_departments = session.exec(select(Department).order_by(Department.name)).all()
+    departments_without_group = [d for d in all_departments if d.id not in grouped_department_ids]
     return templates.TemplateResponse(
         request,
         "custom_fields.html",
-        {"fields": fields, "suggestions": suggestions, "error": error, "saved": bool(saved)},
+        {
+            "fields": fields,
+            "suggestions": suggestions,
+            "error": error,
+            "saved": bool(saved),
+            "groups_view": groups_view,
+            "departments_without_group": departments_without_group,
+        },
     )
 
 
@@ -1263,12 +1279,45 @@ def create_custom_field_route(
     tag_name: str = Form(...),
     label: str = Form(...),
     value: str = Form(""),
+    group_id: str = Form(""),
     session: Session = Depends(get_session),
 ):
     try:
-        create_custom_field(session, tag_name, label, value)
+        create_custom_field(session, tag_name, label, value, group_id=int(group_id) if group_id.strip() else None)
     except ValueError as e:
         return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-field-groups")
+def create_custom_field_group_route(
+    name: str = Form(...),
+    department_id: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    if not department_id.strip():
+        return RedirectResponse(
+            f"/settings/custom-fields?error={quote('Pick a department for the new group.')}", status_code=303
+        )
+    try:
+        create_group(session, name, int(department_id))
+    except ValueError as e:
+        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-field-groups/{group_id}/update")
+def update_custom_field_group_route(group_id: int, name: str = Form(...), session: Session = Depends(get_session)):
+    try:
+        update_group(session, group_id, name)
+    except ValueError as e:
+        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-field-groups/{group_id}/delete")
+def delete_custom_field_group_route(group_id: int, session: Session = Depends(get_session)):
+    delete_group(session, group_id)
     return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
 
 

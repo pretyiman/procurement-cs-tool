@@ -31,9 +31,13 @@
 </div>
 {% endif %}
 
+<h2>Global fields</h2>
+<p class="muted">The same value on every document, regardless of which department the RFQ belongs to.</p>
+
 <div class="card">
-  <h2 style="margin-top:0">Add a custom field</h2>
+  <h2 style="margin-top:0">Add a global field</h2>
   <form method="post" action="/settings/custom-fields" class="row-form" id="add-field-form">
+    <input type="hidden" name="group_id" value="">
     <div class="field">
       <label for="new_label">Description</label>
       <input type="text" id="new_label" name="label" required placeholder="e.g. Prep By - Designation">
@@ -50,7 +54,6 @@
   </form>
 </div>
 
-<h2>Existing fields ({{ fields|length }})</h2>
 {% if fields %}
 {% for f in fields %}
 <div class="card">
@@ -76,7 +79,104 @@
 </div>
 {% endfor %}
 {% else %}
-<p class="empty">No custom fields yet - add one above.</p>
+<p class="empty">No global fields yet - add one above.</p>
+{% endif %}
+
+<h2>Custom Field Groups (per-department)</h2>
+<p class="muted">
+  For values that legitimately differ by which department initiated the RFQ - e.g. Department A's initiating officer name/designation, or its usual receiving store/authority, vs. Department B's. Each department can have one group. When a document is generated for an RFQ, the app looks up that RFQ's department, and any tag defined in that department's group overrides the matching global field above (a group only needs to define what's <em>different</em> - anything it doesn't set still falls back to the global value). An RFQ with no department, or a department with no group, just uses the global fields as-is.
+</p>
+
+{% if departments_without_group %}
+<div class="card">
+  <h2 style="margin-top:0">Create a group</h2>
+  <form method="post" action="/settings/custom-field-groups" class="row-form">
+    <div class="field">
+      <label for="new_group_name">Group name</label>
+      <input type="text" id="new_group_name" name="name" required placeholder="e.g. Department A">
+    </div>
+    <div class="field">
+      <label for="new_group_department">Department</label>
+      <select id="new_group_department" name="department_id" required>
+        <option value="">Select a department...</option>
+        {% for d in departments_without_group %}
+        <option value="{{ d.id }}">{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit">Create group</button>
+  </form>
+</div>
+{% endif %}
+
+{% if groups_view %}
+{% for gv in groups_view %}
+<div class="card">
+  <form method="post" action="/settings/custom-field-groups/{{ gv.group.id }}/update" class="row-form">
+    <div class="field">
+      <label for="group_name_{{ gv.group.id }}">Group name</label>
+      <input type="text" id="group_name_{{ gv.group.id }}" name="name" value="{{ gv.group.name }}" required>
+    </div>
+    <div class="field">
+      <label>Department</label>
+      <input type="text" value="{{ gv.group.department.name if gv.group.department else '' }}" disabled style="background:#f4f6f8">
+    </div>
+    <button type="submit">Save</button>
+  </form>
+  <form method="post" action="/settings/custom-field-groups/{{ gv.group.id }}/delete" style="margin-top:0.5rem"
+        onsubmit="return confirm('Delete the group &quot;{{ gv.group.name }}&quot; and all {{ gv.fields|length }} field(s) in it?');">
+    <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete group</button>
+  </form>
+
+  <h3>Fields in this group</h3>
+  <form method="post" action="/settings/custom-fields" class="row-form">
+    <input type="hidden" name="group_id" value="{{ gv.group.id }}">
+    <div class="field">
+      <label for="new_label_{{ gv.group.id }}">Description</label>
+      <input type="text" id="new_label_{{ gv.group.id }}" name="label" required placeholder="e.g. Prep By - Designation">
+    </div>
+    <div class="field">
+      <label for="new_tag_name_{{ gv.group.id }}">Tag name</label>
+      <input type="text" id="new_tag_name_{{ gv.group.id }}" name="tag_name" required placeholder="e.g. prep_by_designation">
+    </div>
+    <div class="field" style="flex:2">
+      <label for="new_value_{{ gv.group.id }}">Value</label>
+      <input type="text" id="new_value_{{ gv.group.id }}" name="value" placeholder="e.g. Junior Clerk (BS-11)">
+    </div>
+    <button type="submit">Add field</button>
+  </form>
+
+  {% if gv.fields %}
+  {% for f in gv.fields %}
+  <div class="card" style="background:#f9fafb">
+    <form method="post" action="/settings/custom-fields/{{ f.id }}/update" class="row-form">
+      <div class="field">
+        <label>Tag name</label>
+        <input type="text" value="{{ f.tag_name }}" disabled style="background:#f4f6f8">
+      </div>
+      <div class="field">
+        <label for="label_{{ f.id }}">Description</label>
+        <input type="text" id="label_{{ f.id }}" name="label" value="{{ f.label }}" required>
+      </div>
+      <div class="field" style="flex:2">
+        <label for="value_{{ f.id }}">Value</label>
+        <input type="text" id="value_{{ f.id }}" name="value" value="{{ f.value }}">
+      </div>
+      <button type="submit">Save</button>
+    </form>
+    <form method="post" action="/settings/custom-fields/{{ f.id }}/delete" style="margin-top:0.5rem"
+          onsubmit="return confirm('Delete this field from the group?');">
+      <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">No fields in this group yet - add one above.</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<p class="empty">No Custom Field Groups yet.</p>
 {% endif %}
 
 <script>
