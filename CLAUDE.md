@@ -123,7 +123,9 @@ app/
                                # Departments/RFQs/Settings) + shared
                                # search-select JS combobox (supports inline
                                # "+" quick-create)
-    dashboard.html              # "/" — stat cards + recent tenders
+    dashboard.html              # "/" — stat cards + recent tenders, each
+                                 # linking to its phase-appropriate landing
+                                 # page (see _phase_landing_url in main.py)
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
@@ -136,7 +138,8 @@ app/
                                             # signature-block role names
     custom_fields.html                       # "/settings/custom-fields" — admin-
                                               # defined {{ tag }} text fields
-    tenders_list.html                # "/tenders" — list/create/import
+    tenders_list.html                # "/tenders" — list/create/import;
+                                      # each row links to its phase landing
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt
     tender_detail.html                 # "/tenders/{id}" — add item (search-select),
@@ -179,6 +182,7 @@ tests/
   test_docx_export.py
   test_proposal_snapshot.py
   test_item_lock.py
+  test_phase_landing.py
   test_tender_status.py
   test_lpr_history.py
   test_tender_templates.py

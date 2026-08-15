@@ -108,6 +108,36 @@ def _items_locked(tender: Tender) -> bool:
     return False
 
 
+def _phase_landing_url(session: Session, tender: Tender) -> str:
+    """Where "opening" this RFQ (from a list) should land, based on how
+    far along it actually is - so resuming work shows what to do next
+    instead of always the item-editing page regardless of stage. Only
+    picks the *default* landing; every phase is still directly reachable
+    from any page via the phase nav / quick-jump links."""
+    base = f"/tenders/{tender.id}"
+    if tender.status in (TenderStatus.awarded, TenderStatus.proposal_approved):
+        return f"{base}/contract-award"
+    if tender.status == TenderStatus.proposal_generated:
+        return f"{base}/proposal"
+
+    # status == draft
+    today = datetime.date.today()
+    if tender.opening_date is not None and tender.opening_date <= today:
+        # Quote collection has formally closed - land on Comparative
+        # Summary to review/decide, even if every item already happens to
+        # be resolved (awards default to lowest bidder automatically, so
+        # "resolved" alone is too weak a signal to skip a human review).
+        return f"{base}/comparative-summary"
+    proposal = build_purchase_proposal(session, tender.id)
+    if proposal.firm_groups and not proposal.unresolved_items:
+        # No opening_date tracked, but every item already has a decision -
+        # a reasonable nudge toward generating the proposal.
+        return f"{base}/proposal"
+    if tender.issue_date is not None and tender.issue_date <= today:
+        return f"{base}/quote-entry"
+    return base
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "app": "procurement-cs-tool"}
@@ -121,12 +151,14 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, session: Session = Depends(get_session)):
     tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
-    status_counts = {"draft": 0, "proposal_generated": 0, "awarded": 0}
+    status_counts = {"draft": 0, "proposal_generated": 0, "proposal_approved": 0, "awarded": 0}
     for t in tenders:
         status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
 
     item_count = len(session.exec(select(ItemMaster)).all())
     supplier_count = len(session.exec(select(Supplier)).all())
+    recent_tenders = tenders[:8]
+    recent_rows = [{"tender": t, "landing_url": _phase_landing_url(session, t)} for t in recent_tenders]
 
     return templates.TemplateResponse(
         request,
@@ -136,7 +168,7 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
             "status_counts": status_counts,
             "item_count": item_count,
             "supplier_count": supplier_count,
-            "recent_tenders": tenders[:8],
+            "recent_rows": recent_rows,
         },
     )
 
@@ -392,7 +424,8 @@ def update_supplier(
 @app.get("/tenders", response_class=HTMLResponse)
 def tenders_list(request: Request, session: Session = Depends(get_session)):
     tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
-    return templates.TemplateResponse(request, "tenders_list.html", {"tenders": tenders})
+    rows = [{"tender": t, "landing_url": _phase_landing_url(session, t)} for t in tenders]
+    return templates.TemplateResponse(request, "tenders_list.html", {"rows": rows})
 
 
 # ---------------------------------------------------------------------------
