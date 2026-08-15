@@ -1,0 +1,21 @@
+{% set phase_order = ["items", "quote_entry", "comparative_summary", "proposal", "contract_award"] %}
+{% set phase_labels = {
+  "items": "Items",
+  "quote_entry": "Quote Entry",
+  "comparative_summary": "Comparative Summary",
+  "proposal": "Purchase Proposal",
+  "contract_award": "Contract Award",
+} %}
+{% set phase_urls = {
+  "items": "/tenders/" ~ tender.id,
+  "quote_entry": "/tenders/" ~ tender.id ~ "/quote-entry",
+  "comparative_summary": "/tenders/" ~ tender.id ~ "/comparative-summary",
+  "proposal": "/tenders/" ~ tender.id ~ "/proposal",
+  "contract_award": "/tenders/" ~ tender.id ~ "/contract-award",
+} %}
+{% set idx = phase_order.index(current) %}
+<p class="muted" style="font-size:0.85rem">
+  {% if idx > 0 %}<a href="{{ phase_urls[phase_order[idx - 1]] }}">&larr; {{ phase_labels[phase_order[idx - 1]] }}</a>{% endif %}
+  {% if idx > 0 and idx < (phase_order|length - 1) %} &nbsp;|&nbsp; {% endif %}
+  {% if idx < (phase_order|length - 1) %}<a href="{{ phase_urls[phase_order[idx + 1]] }}">{{ phase_labels[phase_order[idx + 1]] }} &rarr;</a>{% endif %}
+</p>

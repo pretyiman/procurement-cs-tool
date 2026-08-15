@@ -142,13 +142,35 @@ app/
     tender_detail.html                 # "/tenders/{id}" — add item (search-select),
                                         # add supplier, quote grid, live CS, Excel
                                         # export, save-as-template
-    quote_entry.html                    # "/tenders/{id}/quote-entry" — guided entry
-    award_review.html                     # "/tenders/{id}/award" — click-to-award
-                                           # pills; locks (read-only) once the
-                                           # proposal is approved
+    quote_entry.html                    # "/tenders/{id}/quote-entry" — guided entry,
+                                         # includes _comparative_summary_grid.html
+    comparative_summary.html              # "/tenders/{id}/comparative-summary" —
+                                           # click-to-award pills (locks read-only
+                                           # once the proposal is approved) + the
+                                           # same _comparative_summary_grid.html
+                                           # partial as Quote Entry, so both stay in
+                                           # sync from one shared fragment
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
-                                             # Approve/Finalize actions, Excel/PP-doc/
-                                             # CA-doc downloads, document-details form
+                                             # Approve/Finalize actions, Excel/PP-doc
+                                             # download, document-details form (CA
+                                             # downloads live on contract_award.html)
+    contract_award.html                       # "/tenders/{id}/contract-award" — one
+                                               # card per winning firm (single- or
+                                               # multi-party), persisted contract
+                                               # number, only reachable once the
+                                               # proposal is approved
+    _comparative_summary_grid.html              # shared partial: view toggle (item/
+                                                 # package) + grid + Download
+                                                 # Comparative Statement link -
+                                                 # included by quote_entry.html and
+                                                 # comparative_summary.html
+    _phase_nav.html                               # shared Prev/Next partial across
+                                                   # the 5 lifecycle pages (Items ->
+                                                   # Quote Entry -> Comparative
+                                                   # Summary -> Purchase Proposal ->
+                                                   # Contract Award), included
+                                                   # additively alongside each page's
+                                                   # own quick-jump links
 tests/
   test_excel_io.py
   test_cs_engine.py

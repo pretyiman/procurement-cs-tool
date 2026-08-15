@@ -9,9 +9,12 @@
 </p>
 <p>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>
-  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/award">Award Review</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/comparative-summary">Comparative Summary</a>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/contract-award">Contract Award</a>
 </p>
+{% set current = "items" %}
+{% include "_phase_nav.html" %}
 
 {% if items %}
 <details style="margin-bottom:1rem">

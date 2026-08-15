@@ -5,9 +5,11 @@
 <p class="muted">Pick a supplier, then enter their rate against each item already on this RFQ. Leave a rate blank for anything they didn't quote.</p>
 <p>
   <a href="/tenders/{{ tender.id }}">&larr; Back to items</a> &middot;
-  <a href="/tenders/{{ tender.id }}/award">Award Review</a> &middot;
+  <a href="/tenders/{{ tender.id }}/comparative-summary">Comparative Summary</a> &middot;
   <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a>
 </p>
+{% set current = "quote_entry" %}
+{% include "_phase_nav.html" %}
 
 <div class="card">
   <h2 style="margin-top:0">Supplier</h2>
@@ -75,85 +77,8 @@
 </div>
 {% endif %}
 
-{% set supplier_qs = ('&supplier_id=' ~ selected_supplier.id) if selected_supplier else '' %}
-<h2>All quotes so far &mdash; comparative summary</h2>
-<div class="card">
-  <div class="row-form" style="gap:1.5rem">
-    <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
-      <input type="radio" name="cs_view" value="item" style="width:auto" {{ 'checked' if view != 'package' else '' }}
-             onchange="location.href='/tenders/{{ tender.id }}/quote-entry?view=item{{ supplier_qs }}'">
-      Non-package (cheapest item per row)
-    </label>
-    <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
-      <input type="radio" name="cs_view" value="package" style="width:auto" {{ 'checked' if view == 'package' else '' }}
-             onchange="location.href='/tenders/{{ tender.id }}/quote-entry?view=package{{ supplier_qs }}'">
-      Package (lowest total from one supplier)
-    </label>
-  </div>
-</div>
-
-<div class="card" style="overflow-x:auto">
-  {% if view == 'package' %}
-    <p class="muted" style="margin-top:0">Ranks each supplier's total across every item on this RFQ - only a supplier who quoted everything can win the whole package. This doesn't award anything; it's a comparison to help decide.</p>
-    {% if items and package_totals %}
-    <table>
-      <thead>
-        <tr>
-          <th>Firm</th><th class="num">Items Quoted</th><th class="num">Store Value</th>
-          <th class="num">{{ tender.tax_type.value }}</th><th class="num">Contract Value</th><th>Eligible</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in package_totals %}
-        <tr class="{{ 'row-lowest' if loop.first and p.fully_quoted else '' }}">
-          <td>{{ p.supplier_name }}{% if loop.first and p.fully_quoted %} <span class="badge">LOWEST PACKAGE</span>{% endif %}</td>
-          <td class="num">{{ p.quoted_item_count }}/{{ p.total_item_count }}</td>
-          <td class="num">{{ '%.2f'|format(p.store_value) }}</td>
-          <td class="num">{{ '%.2f'|format(p.tax_amount) }}</td>
-          <td class="num">{{ '%.2f'|format(p.contract_value) }}</td>
-          <td>{{ 'Yes' if p.fully_quoted else 'No - partial' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p><a class="btn" href="/tenders/{{ tender.id }}/export-package">Download CS</a></p>
-    {% else %}
-    <p class="empty">No quotes recorded yet - pick a supplier above and enter their rates.</p>
-    {% endif %}
-  {% else %}
-    {% if items and quoting_suppliers %}
-    <table>
-      <thead>
-        <tr>
-          <th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th>
-          {% for s in quoting_suppliers %}
-          <th>{{ s.name }}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in items %}
-        <tr>
-          <td>{{ item.ser }}</td>
-          <td>{{ item.item_master.part_no }}</td>
-          <td>{{ item.item_master.description }}</td>
-          <td class="num">{{ item.qty }}</td>
-          {% for s in quoting_suppliers %}
-          {% set rate = full_rate_matrix.get((item.id, s.id)) %}
-          <td class="num {{ 'lowest-cell' if lowest_by_item_id.get(item.id) == s.id else '' }}">
-            {{ '%.2f'|format(rate) if rate is not none else '-' }}
-          </td>
-          {% endfor %}
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p><a class="btn" href="/tenders/{{ tender.id }}/export">Download CS</a></p>
-    {% else %}
-    <p class="empty">No quotes recorded yet - pick a supplier above and enter their rates.</p>
-    {% endif %}
-  {% endif %}
-</div>
+{% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/quote-entry" %}
+{% include "_comparative_summary_grid.html" %}
 
 <script>
   function updateRowTotal(input) {

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Contract Award - {{ tender.inquiry_no }}{% endblock %}
+{% block content %}
+<h1>{{ tender.inquiry_no }} &mdash; Contract Award</h1>
+<p class="muted">
+  One Contract Award document per winning firm - editable in Word before sending. A contract number, once entered
+  for a firm, is remembered here so re-downloading later reuses the same number.
+</p>
+<p><a href="/tenders/{{ tender.id }}/proposal">&larr; Purchase Proposal</a></p>
+{% set current = "contract_award" %}
+{% include "_phase_nav.html" %}
+
+{% if not snapshot %}
+<div class="card">
+  <p class="muted" style="margin-bottom:0">No proposal has been generated yet. Go to <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a> to generate one first.</p>
+</div>
+{% elif not can_issue %}
+<div class="card">
+  <p class="muted" style="margin-bottom:0">The proposal needs to be approved before Contract Award documents can be issued - go to <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal</a> to approve it.</p>
+</div>
+{% else %}
+
+{% if tender.status.value == "awarded" %}
+<div class="card notice-exists">This RFQ is finalized ({{ tender.awarded_date.strftime('%d %b %Y') if tender.awarded_date }}) - every firm below has an issued contract.</div>
+{% endif %}
+
+{% if snapshot.firm_groups|length > 1 %}
+<p><a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/contracts.zip">Download all {{ snapshot.firm_groups|length }} contract awards (.zip)</a></p>
+{% endif %}
+
+{% for group in snapshot.firm_groups %}
+{% set existing_ca = contract_awards_by_supplier.get(group.supplier_id) %}
+<div class="card">
+  <h2 style="margin-top:0">{{ group.supplier_name }}</h2>
+  <p class="muted" style="margin-top:0">
+    {{ group.items|length }} item(s) &middot; Store Value {{ '%.2f'|format(group.store_value) }} &middot;
+    {{ tender.tax_type.value }} {{ '%.2f'|format(group.tax_amount) }} &middot;
+    Contract Value {{ '%.2f'|format(group.contract_value) }}
+  </p>
+  <form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form">
+    <div class="field" style="max-width:260px">
+      <label for="contract_no_{{ group.supplier_id }}">Contract No.</label>
+      <input type="text" id="contract_no_{{ group.supplier_id }}" name="contract_no" required value="{{ existing_ca.contract_no if existing_ca else '' }}">
+    </div>
+    <button type="submit">{{ 'Re-download' if existing_ca else 'Issue & Download' }} Contract Award (Word)</button>
+  </form>
+  {% if existing_ca %}
+  <p class="muted" style="margin-bottom:0">Contract No. <strong>{{ existing_ca.contract_no }}</strong> issued {{ existing_ca.created_at.strftime('%d %b %Y') }}. Change the number above and re-download if it needs correcting.</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

@@ -2,16 +2,18 @@
 {% block title %}Purchase Proposal - {{ tender.inquiry_no }}{% endblock %}
 {% block content %}
 <h1>{{ tender.inquiry_no }} &mdash; Purchase Proposal</h1>
-<p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/award">Award Review</a></p>
+<p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/comparative-summary">Comparative Summary</a></p>
 <p>
   <a class="btn" href="/tenders/{{ tender.id }}/proposal/export">Export to Excel</a>
   {% if snapshot %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document">Download Purchase Proposal (Word)</a>
   {% endif %}
   {% if tender.status.value in ("proposal_approved", "awarded") %}
-  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/contracts.zip">Download all contract awards (.zip)</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/contract-award">Contract Award &rarr;</a>
   {% endif %}
 </p>
+{% set current = "proposal" %}
+{% include "_phase_nav.html" %}
 
 <div class="card">
   <p class="muted" style="margin-top:0">Status: <strong>{{ tender.status.value }}</strong></p>
@@ -22,14 +24,15 @@
       <button type="submit">Generate Proposal</button>
     </form>
     {% else %}
-    <p class="muted" style="margin-bottom:0">Award at least one item (Award Review) before generating the proposal.</p>
+    <p class="muted" style="margin-bottom:0">Award at least one item (Comparative Summary) before generating the proposal.</p>
     {% endif %}
 
   {% elif tender.status.value == "proposal_generated" %}
     <p class="muted">
       Generated {{ snapshot.generated_at.strftime('%d %b %Y, %H:%M') }}. This is a working draft - go back to
-      <a href="/tenders/{{ tender.id }}/award">Award Review</a> and click Generate again if anything needs to change
-      (e.g. the approving authority asked for a revision). Approving locks it and enables Contract Award generation.
+      <a href="/tenders/{{ tender.id }}/comparative-summary">Comparative Summary</a> and click Generate again if
+      anything needs to change (e.g. the approving authority asked for a revision). Approving locks it and enables
+      Contract Award generation.
     </p>
     <form method="post" action="/tenders/{{ tender.id }}/generate-proposal" style="display:inline">
       <button type="submit" class="btn-secondary">Regenerate Proposal</button>
@@ -41,14 +44,15 @@
   {% elif tender.status.value == "proposal_approved" %}
     <p class="muted">
       Approved {{ snapshot.approved_at.strftime('%d %b %Y, %H:%M') }}. Award decisions and the proposal are now
-      locked. Download each firm's Contract Award below, then finalize once every firm has a contract number.
+      locked. Go to <a href="/tenders/{{ tender.id }}/contract-award">Contract Award</a> to download each firm's
+      contract, then finalize here once every firm has a contract number.
     </p>
     {% if all_have_contract_award %}
     <form method="post" action="/tenders/{{ tender.id }}/mark-awarded">
       <button type="submit">Finalize - mark RFQ as awarded</button>
     </form>
     {% else %}
-    <p class="muted" style="margin-bottom:0">Every awarded firm needs a Contract Award (download it below, with a contract number) before you can finalize.</p>
+    <p class="muted" style="margin-bottom:0">Every awarded firm needs a Contract Award (<a href="/tenders/{{ tender.id }}/contract-award">issue it here</a>, with a contract number) before you can finalize.</p>
     {% endif %}
 
   {% elif tender.status.value == "awarded" %}
@@ -115,14 +119,10 @@
 <h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)</h2>
 {% if tender.status.value in ("proposal_approved", "awarded") %}
 {% set existing_ca = contract_awards_by_supplier.get(group.supplier_id) %}
-<form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form" style="margin-bottom:0.25rem">
-  <div class="field" style="max-width:260px">
-    <label for="contract_no_{{ group.supplier_id }}">Contract No. (for Contract Award document)</label>
-    <input type="text" id="contract_no_{{ group.supplier_id }}" name="contract_no" required value="{{ existing_ca.contract_no if existing_ca else '' }}">
-  </div>
-  <button type="submit">{{ 'Re-download' if existing_ca else 'Download' }} Contract Award (Word)</button>
-</form>
-{% if existing_ca %}<p class="muted" style="margin-top:0;margin-bottom:0.75rem">Contract No. <strong>{{ existing_ca.contract_no }}</strong> already issued for this firm.</p>{% endif %}
+<p class="muted" style="margin-top:0">
+  {% if existing_ca %}Contract No. <strong>{{ existing_ca.contract_no }}</strong> issued.{% else %}No Contract Award issued yet.{% endif %}
+  <a href="/tenders/{{ tender.id }}/contract-award">{{ 'Re-download' if existing_ca else 'Issue it' }} on the Contract Award page &rarr;</a>
+</p>
 {% endif %}
 <div class="card">
   <table>
@@ -203,7 +203,7 @@
 {% if proposal.unresolved_items %}
 <h2>Unresolved items</h2>
 <div class="card">
-  <p class="muted">Not quoted by any firm, or an override became invalid - resolve these in Award Review before generating the proposal.</p>
+  <p class="muted">Not quoted by any firm, or an override became invalid - resolve these in <a href="/tenders/{{ tender.id }}/comparative-summary">Comparative Summary</a> before generating the proposal.</p>
   <table>
     <thead><tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th></tr></thead>
     <tbody>

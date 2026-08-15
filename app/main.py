@@ -875,14 +875,16 @@ async def submit_quote_entry(tender_id: int, request: Request, session: Session 
 # ---------------------------------------------------------------------------
 
 
-@app.get("/tenders/{tender_id}/award", response_class=HTMLResponse)
-def award_review(tender_id: int, request: Request, session: Session = Depends(get_session)):
+@app.get("/tenders/{tender_id}/comparative-summary", response_class=HTMLResponse)
+def comparative_summary_view(
+    tender_id: int, request: Request, view: str = "item", session: Session = Depends(get_session)
+):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
     awarded_items, cs = resolve_awarded_items(session, tender_id)
-    lowest_by_item_id = {r.item.id: r for r in cs.item_results}
+    item_results_by_id = {r.item.id: r for r in cs.item_results}
 
     item_ids = [ai.item.id for ai in awarded_items]
     quotes = (
@@ -900,7 +902,7 @@ def award_review(tender_id: int, request: Request, session: Session = Depends(ge
 
     rows = []
     for ai in awarded_items:
-        result = lowest_by_item_id[ai.item.id]
+        result = item_results_by_id[ai.item.id]
         rows.append(
             {
                 "item": ai.item,
@@ -921,8 +923,31 @@ def award_review(tender_id: int, request: Request, session: Session = Depends(ge
             }
         )
 
+    # Same cross-check grid as Quote Entry (shared partial) - every supplier
+    # who has quoted anything, lowest rate per item highlighted, plus the
+    # Download Comparative Statement link, so the printed/signed copy
+    # needed before drafting the Purchase Proposal is available right here.
+    items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
+    quoting_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
+    grid_lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in cs.item_results}
+    full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in quotes}
+
     locked = tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated)
-    return templates.TemplateResponse(request, "award_review.html", {"tender": tender, "rows": rows, "locked": locked})
+    return templates.TemplateResponse(
+        request,
+        "comparative_summary.html",
+        {
+            "tender": tender,
+            "rows": rows,
+            "locked": locked,
+            "items": items,
+            "quoting_suppliers": quoting_suppliers,
+            "full_rate_matrix": full_rate_matrix,
+            "lowest_by_item_id": grid_lowest_by_item_id,
+            "view": "package" if view == "package" else "item",
+            "package_totals": cs.package_totals,
+        },
+    )
 
 
 @app.post("/tenders/{tender_id}/items/{item_id}/award")
@@ -958,7 +983,7 @@ def set_award_override(
 
     session.add(item)
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}/award", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}/comparative-summary", status_code=303)
 
 
 @app.get("/tenders/{tender_id}/proposal", response_class=HTMLResponse)
@@ -987,6 +1012,32 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
             "contract_awards_by_supplier": contract_awards_by_supplier,
             "all_have_contract_award": all_have_contract_award,
             "departments_json": departments_json,
+        },
+    )
+
+
+@app.get("/tenders/{tender_id}/contract-award", response_class=HTMLResponse)
+def contract_award_view(tender_id: int, request: Request, session: Session = Depends(get_session)):
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    snapshot = get_snapshot(session, tender_id)
+    can_issue = tender.status in (TenderStatus.proposal_approved, TenderStatus.awarded)
+    contract_awards_by_supplier = {}
+    if snapshot is not None and can_issue:
+        contract_awards_by_supplier = {
+            g.supplier_id: get_contract_award(session, snapshot.id, g.supplier_id) for g in snapshot.firm_groups
+        }
+
+    return templates.TemplateResponse(
+        request,
+        "contract_award.html",
+        {
+            "tender": tender,
+            "snapshot": snapshot,
+            "can_issue": can_issue,
+            "contract_awards_by_supplier": contract_awards_by_supplier,
         },
     )
 
