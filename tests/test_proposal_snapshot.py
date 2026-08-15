@@ -257,3 +257,63 @@ def test_ca_download_requires_approved_proposal():
         assert resp.status_code == 200
     finally:
         app.dependency_overrides.clear()
+
+
+def test_contract_no_locks_once_tender_is_awarded():
+    """Before finalizing, resubmitting a corrected number updates it in
+    place. Once the tender is fully awarded, the submitted contract_no is
+    ignored entirely - the persisted one always wins, so an already-issued
+    number can't be silently overwritten with no audit trail."""
+    from app.main import app
+    from app.models import Item, ItemMaster
+
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            im = ItemMaster(part_no="X-1", description="Widget", default_unit="Nos")
+            session.add(im)
+            session.commit()
+            item_master_id = im.id
+
+        resp = client.post("/tenders", data={"inquiry_no": "CA Lock Test"}, follow_redirects=False)
+        tender_id = int(resp.headers["location"].rsplit("/", 1)[-1])
+        client.post(f"/tenders/{tender_id}/items", data={"item_master_id": str(item_master_id), "qty": "5"})
+        with Session(engine) as session:
+            item_id = session.exec(select(Item).where(Item.tender_id == tender_id)).one().id
+        supplier_id = client.post("/suppliers/quick-create", data={"name": "Acme"}).json()["id"]
+        client.post(
+            f"/tenders/{tender_id}/quote-entry", data={"supplier_id": str(supplier_id), f"rate__{item_id}": "10"}
+        )
+        client.post(f"/tenders/{tender_id}/generate-proposal")
+        client.post(f"/tenders/{tender_id}/approve-proposal")
+
+        resp = client.post(f"/tenders/{tender_id}/proposal/contract/{supplier_id}", data={"contract_no": "C-1"})
+        assert resp.status_code == 200
+
+        # Still correctable pre-finalize.
+        resp = client.post(f"/tenders/{tender_id}/proposal/contract/{supplier_id}", data={"contract_no": "C-1-FIXED"})
+        assert resp.status_code == 200
+        with Session(engine) as session:
+            snapshot = get_snapshot(session, tender_id)
+            assert get_contract_award(session, snapshot.id, supplier_id).contract_no == "C-1-FIXED"
+
+        client.post(f"/tenders/{tender_id}/mark-awarded")
+
+        # Post-finalize: a different submitted number is ignored - the
+        # persisted one is what actually gets used/kept.
+        resp = client.post(
+            f"/tenders/{tender_id}/proposal/contract/{supplier_id}", data={"contract_no": "SNEAKY-CHANGE"}
+        )
+        assert resp.status_code == 200
+        with Session(engine) as session:
+            snapshot = get_snapshot(session, tender_id)
+            award = get_contract_award(session, snapshot.id, supplier_id)
+            assert award.contract_no == "C-1-FIXED"
+            assert len(session.exec(select(ContractAward)).all()) == 1
+
+        resp = client.get(f"/tenders/{tender_id}/contract-award")
+        assert "C-1-FIXED" in resp.text
+        assert "locked now that this RFQ is finalized" in resp.text
+        assert 'name="contract_no" required' not in resp.text
+    finally:
+        app.dependency_overrides.clear()

@@ -37,6 +37,13 @@
     {{ tender.tax_type.value }} {{ '%.2f'|format(group.tax_amount) }} &middot;
     Contract Value {{ '%.2f'|format(group.contract_value) }}
   </p>
+  {% if tender.status.value == "awarded" and existing_ca %}
+  <p class="muted" style="margin-top:0">Contract No. <strong>{{ existing_ca.contract_no }}</strong> - issued {{ existing_ca.created_at.strftime('%d %b %Y') }} and locked now that this RFQ is finalized.</p>
+  <form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}">
+    <input type="hidden" name="contract_no" value="{{ existing_ca.contract_no }}">
+    <button type="submit">Download Contract Award (Word)</button>
+  </form>
+  {% else %}
   <form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form">
     <div class="field" style="max-width:260px">
       <label for="contract_no_{{ group.supplier_id }}">Contract No.</label>
@@ -46,6 +53,7 @@
   </form>
   {% if existing_ca %}
   <p class="muted" style="margin-bottom:0">Contract No. <strong>{{ existing_ca.contract_no }}</strong> issued {{ existing_ca.created_at.strftime('%d %b %Y') }}. Change the number above and re-download if it needs correcting.</p>
+  {% endif %}
   {% endif %}
 </div>
 {% endfor %}

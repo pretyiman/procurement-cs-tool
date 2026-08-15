@@ -1185,10 +1185,21 @@ def download_contract_draft(
     if group is None:
         raise HTTPException(400, "This supplier has no items awarded on this tender")
 
-    try:
-        upsert_contract_award(session, snapshot.id, supplier_id, contract_no)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    if tender.status == TenderStatus.awarded:
+        # Contract numbers lock once the RFQ is finalized - reuse whatever
+        # was already issued regardless of what's submitted, rather than
+        # silently overwriting an already-issued number with no audit
+        # trail. (The UI hides the edit field at this stage too; this is
+        # the server-side enforcement of that same rule.)
+        existing = get_contract_award(session, snapshot.id, supplier_id)
+        if existing is None:
+            raise HTTPException(400, "No Contract Award was issued for this firm before finalizing")
+        contract_no = existing.contract_no
+    else:
+        try:
+            upsert_contract_award(session, snapshot.id, supplier_id, contract_no)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     rules = get_business_rules(session)
     content = generate_contract_award(

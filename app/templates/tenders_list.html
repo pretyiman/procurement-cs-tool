@@ -21,13 +21,15 @@
 <h2>Existing RFQs</h2>
 {% if rows %}
 <table class="tender-list">
-  <thead><tr><th>Inquiry No.</th><th>Tax</th><th>Status</th></tr></thead>
+  <thead><tr><th>Inquiry No.</th><th>Tax</th><th>Status</th><th>Publish Date</th><th>Opening Date</th></tr></thead>
   <tbody>
     {% for row in rows %}
     <tr>
       <td><a href="{{ row.landing_url }}">{{ row.tender.inquiry_no }}</a></td>
       <td>{{ row.tender.tax_type.value }} {{ row.tender.tax_percent }}%</td>
       <td>{{ row.tender.status.value }}</td>
+      <td>{{ row.tender.issue_date.strftime('%d %b %Y') if row.tender.issue_date else '-' }}</td>
+      <td>{{ row.tender.opening_date.strftime('%d %b %Y') if row.tender.opening_date else '-' }}</td>
     </tr>
     {% endfor %}
   </tbody>
