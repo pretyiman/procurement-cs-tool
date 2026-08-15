@@ -93,6 +93,21 @@ def _json_for_script(data) -> str:
     return json.dumps(data).replace("</", "<\\/")
 
 
+def _items_locked(tender: Tender) -> bool:
+    """Once an RFQ has moved past drafting (status) or has actually been
+    published (issue_date has passed), there's no legitimate reason to
+    keep adding/editing/deleting items - suppliers may already be quoting
+    against a fixed list. A blank issue_date means "not yet published"
+    and never locks by date alone - only a real, passed publish date
+    does. No unlock/override exists for v1; start a fresh RFQ if the
+    item list genuinely needs to change after this point."""
+    if tender.status != TenderStatus.draft:
+        return True
+    if tender.issue_date is not None and tender.issue_date <= datetime.date.today():
+        return True
+    return False
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "app": "procurement-cs-tool"}
@@ -592,6 +607,7 @@ def tender_detail(tender_id: int, request: Request, session: Session = Depends(g
             "tender": tender,
             "items": items,
             "catalog_items_json": catalog_items_json,
+            "items_locked": _items_locked(tender),
         },
     )
 
@@ -658,6 +674,8 @@ def add_item(
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
+    if _items_locked(tender):
+        raise HTTPException(400, "Items are locked - this RFQ has been published or has moved past drafting")
 
     try:
         item_master_id_val = int(item_master_id)
@@ -707,6 +725,8 @@ def delete_item(tender_id: int, item_id: int, session: Session = Depends(get_ses
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
+    if _items_locked(tender):
+        raise HTTPException(400, "Items are locked - this RFQ has been published or has moved past drafting")
 
     item = session.get(Item, item_id)
     if item is None or item.tender_id != tender_id:
@@ -734,6 +754,8 @@ async def save_item_quantities(tender_id: int, request: Request, session: Sessio
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
+    if _items_locked(tender):
+        raise HTTPException(400, "Items are locked - this RFQ has been published or has moved past drafting")
 
     form = await request.form()
     for key, value in form.multi_items():

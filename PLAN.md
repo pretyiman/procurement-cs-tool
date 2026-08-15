@@ -482,6 +482,54 @@ was already complete - this is iteration on top of it, same rigor
 
 ---
 
+## Post-MVP round 2 (in-app document control + Purchase Proposal approval workflow)
+
+Three threads, each requested and discussed before building:
+
+**In-app document control** (so non-technical procurement staff never need
+filesystem/code access to tweak PP/CA wording or numbers): Business Rules
+settings (security deposit %/waiver threshold, stamp duty %, previously
+hardcoded in `docx_export.py`) → Document Templates manager (download/
+edit-in-Word/upload PP/CA `.docx`, `.doc` accepted via Word COM conversion,
+validated by rendering against synthetic sample data before accepting) →
+CS Excel label/signature-role settings → Custom Fields (admin-defined
+`{{ tag }}` text, reserved-name collision protection) → Custom Field
+Groups (the same tag can have a different value per department, resolved
+automatically from a tender's `department_id`, no manual selection step).
+Also fixed a real business-rule bug found along the way: stamp duty was
+being calculated on contract value instead of store value.
+
+**Purchase Proposal approval workflow**: added a `proposal_approved`
+status between `proposal_generated` and `awarded`. Generating a proposal
+now freezes the current award state into a `ProposalSnapshot` (+ per-firm
+`ProposalSnapshotFirmGroup`/`Item` rows) - freely regenerable while still
+`proposal_generated` (the revise-after-rejection cycle), but approving
+locks it: award decisions lock, and every CA/PP Word document renders only
+from that frozen snapshot from then on, never live Item/Quote/catalog
+state. Contract numbers are now persisted per (snapshot, firm) via a new
+`ContractAward` table instead of being re-typed on every download;
+finalizing to `awarded` requires every winning firm to have one.
+
+**Page restructuring + item lock**: Award Review renamed to Comparative
+Summary (route `/comparative-summary`), now including the same
+comparative-grid partial Quote Entry uses (one shared fragment) plus a
+Download Comparative Statement link. Contract Award downloads moved off
+the Purchase Proposal page onto their own page (`/contract-award`), one
+card per winning firm. All 5 lifecycle pages (Items → Quote Entry →
+Comparative Summary → Purchase Proposal → Contract Award) got a Prev/Next
+nav pair. Finally, item add/edit/delete now locks once an RFQ's
+`issue_date` has passed (not just once status leaves `draft`) - a blank
+issue_date never locks by date alone; no unlock override exists yet
+(start a fresh RFQ if requirements genuinely change after publishing).
+
+Dev DB reseeded with 7 fresh demo RFQs (`PROC/2026/301`-`307`) spanning
+every stage above - see `git log`/commit messages for verification detail
+per change. All committed individually; `pytest tests/` (106 tests) passes
+as of the last of these commits. Not tracked as new numbered MVP phases,
+same reasoning as round 1.
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles

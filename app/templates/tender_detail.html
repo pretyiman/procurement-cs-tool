@@ -29,6 +29,12 @@
 </details>
 {% endif %}
 
+{% if items_locked %}
+<div class="card notice-exists">
+  Items are locked - this RFQ has {% if tender.status.value != "draft" %}moved past the drafting stage{% else %}already been published (issue date {{ tender.issue_date.strftime('%d %b %Y') }} has passed){% endif %}.
+  Suppliers may already be quoting against this list, so it can no longer be changed here - start a new RFQ if the requirements genuinely need to change.
+</div>
+{% else %}
 <div class="card">
   <h2 style="margin-top:0">Add item to this RFQ</h2>
   <p class="muted">Items come from the <a href="/items">item catalog</a> - add a new catalog item there first if it doesn't exist yet.</p>
@@ -88,10 +94,32 @@
     }
   });
 </script>
+{% endif %}
 
 <h2 id="items">Items</h2>
 <p class="muted">Pricing isn't entered here - once a firm submits a quote, record it via <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>.</p>
 {% if items %}
+{% if items_locked %}
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.ser }}</td>
+        <td>{{ item.item_master.part_no }}</td>
+        <td>{{ item.item_master.description }}</td>
+        <td>{{ item.item_master.default_unit }}</td>
+        <td class="num">{{ item.qty }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p><a class="btn btn-secondary" href="/tenders/{{ tender.id }}/export-items">Download Items List</a></p>
+{% else %}
 <form method="post" action="/tenders/{{ tender.id }}/items/save-quantities">
 <div class="card" style="overflow-x:auto">
   <table>
@@ -124,6 +152,7 @@
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/export-items">Download Items List</a>
 </p>
 </form>
+{% endif %}
 {% else %}
 <p class="empty">No items yet. Add one above, or import a Comparative Statement from the home page.</p>
 {% endif %}

@@ -178,6 +178,7 @@ tests/
   test_quote_entry.py
   test_docx_export.py
   test_proposal_snapshot.py
+  test_item_lock.py
   test_tender_status.py
   test_lpr_history.py
   test_tender_templates.py
