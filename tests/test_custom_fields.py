@@ -14,6 +14,7 @@ from app.docx_export import generate_contract_award
 from app.excel_io import export_cs_xlsx, import_tender
 from app.main import app
 from app.models import BusinessRules, CustomField, CustomFieldGroup, Department, DocumentLabels, Supplier, Tender
+from app.proposal_snapshot import save_proposal_snapshot
 
 try:
     from fastapi.testclient import TestClient
@@ -192,12 +193,12 @@ def test_delete_group_cascades_its_fields():
 def test_custom_field_renders_as_a_tag_in_contract_award():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        snapshot = save_proposal_snapshot(session, tender.id)
+        group = next(g for g in snapshot.firm_groups if g.supplier_name == "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
         content = generate_contract_award(
-            proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES,
+            tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES,
             custom_fields={"prep_by_designation": "Junior Clerk (BS-11)"},
         )
         full_text = "\n".join(p.text for p in Document(BytesIO(content)).paragraphs)
@@ -213,12 +214,12 @@ def test_real_computed_data_overrides_a_same_named_custom_field():
     data must win, never a custom field standing in for it."""
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        snapshot = save_proposal_snapshot(session, tender.id)
+        group = next(g for g in snapshot.firm_groups if g.supplier_name == "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
         content = generate_contract_award(
-            proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES,
+            tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES,
             custom_fields={"contract_no": "SOMETHING-ELSE-ENTIRELY"},
         )
         full_text = "\n".join(p.text for p in Document(BytesIO(content)).paragraphs)

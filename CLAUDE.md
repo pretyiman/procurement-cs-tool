@@ -66,10 +66,21 @@ app/
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
-  award_engine.py               # lowest + manual override logic, Purchase Proposal
+  award_engine.py               # lowest + manual override logic, live Purchase
+                                 # Proposal (draft-stage preview only - the
+                                 # generated/approved proposal is frozen, see
+                                 # proposal_snapshot.py)
+  proposal_snapshot.py            # freezes the Purchase Proposal on Generate
+                                   # (ProposalSnapshot/FirmGroup/Item - draft ->
+                                   # proposal_generated -> proposal_approved ->
+                                   # awarded) and the persisted per-firm
+                                   # ContractAward.contract_no; CA/PP docs render
+                                   # only from this frozen data, never live state
   excel_io.py                     # import CS.xlsx, catalog/supplier get-or-create,
                                    # CS export, purchase proposal export
-  docx_export.py                    # PP/CA document generation (docxtpl)
+  docx_export.py                    # PP/CA document generation (docxtpl),
+                                     # renders from ProposalSnapshot, not live
+                                     # award_engine data
   number_words.py                     # amount-in-words, ordinal (for PP/CA)
   lpr_history.py                        # cross-tender Last Purchase Rate lookup
   business_rules.py                       # get-or-create singleton BusinessRules
@@ -132,8 +143,11 @@ app/
                                         # add supplier, quote grid, live CS, Excel
                                         # export, save-as-template
     quote_entry.html                    # "/tenders/{id}/quote-entry" — guided entry
-    award_review.html                     # "/tenders/{id}/award" — click-to-award pills
-    purchase_proposal.html                  # "/tenders/{id}/proposal" — Excel/PP-doc/
+    award_review.html                     # "/tenders/{id}/award" — click-to-award
+                                           # pills; locks (read-only) once the
+                                           # proposal is approved
+    purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
+                                             # Approve/Finalize actions, Excel/PP-doc/
                                              # CA-doc downloads, document-details form
 tests/
   test_excel_io.py
@@ -141,6 +155,7 @@ tests/
   test_award_engine.py
   test_quote_entry.py
   test_docx_export.py
+  test_proposal_snapshot.py
   test_tender_status.py
   test_lpr_history.py
   test_tender_templates.py

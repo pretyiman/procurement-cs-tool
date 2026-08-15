@@ -164,6 +164,13 @@ def test_full_lifecycle_auto_fills_lpr_on_next_tender():
             follow_redirects=False,
         )
         client.post(f"/tenders/{tender_a_id}/generate-proposal", follow_redirects=False)
+        client.post(f"/tenders/{tender_a_id}/approve-proposal", follow_redirects=False)
+        resp = client.post(
+            f"/tenders/{tender_a_id}/proposal/contract/{supplier_id}",
+            data={"contract_no": "CA-A"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 200
         resp = client.post(f"/tenders/{tender_a_id}/mark-awarded", follow_redirects=False)
         assert resp.status_code == 303
 

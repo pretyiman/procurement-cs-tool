@@ -76,7 +76,7 @@ def test_settings_page_updates_persist_and_affect_next_contract_award():
             data={"supplier_id": str(supplier_id), f"rate__{item_id}": "1000"},
         )
         client.post(f"/tenders/{tender_id}/generate-proposal")
-        client.post(f"/tenders/{tender_id}/mark-awarded")
+        client.post(f"/tenders/{tender_id}/approve-proposal")
 
         with Session(engine) as session:
             supplier = session.get(Supplier, supplier_id)

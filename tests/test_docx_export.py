@@ -8,10 +8,10 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.award_engine import build_purchase_proposal
-from app.cs_engine import build_comparative_statement
 from app.docx_export import generate_contract_award, generate_purchase_proposal_doc
 from app.excel_io import import_tender
 from app.models import BusinessRules, Supplier
+from app.proposal_snapshot import save_proposal_snapshot
 
 CS_XLSX_PATH = Path(__file__).resolve().parent.parent / "CS.xlsx"
 DEFAULT_RULES = BusinessRules()  # 5% deposit (never waived), 0.25% stamp duty - matches the old hardcoded constants
@@ -33,21 +33,34 @@ def _full_text(doc: Document) -> str:
     return "\n".join(parts)
 
 
+def _snapshot_and_group(session: Session, tender, supplier_name: str):
+    """Generate-and-freeze a proposal snapshot (the real path every
+    Contract Award/Purchase Proposal document renders from now), and pull
+    out one firm's frozen group by name."""
+    snapshot = save_proposal_snapshot(session, tender.id)
+    group = next(g for g in snapshot.firm_groups if g.supplier_name == supplier_name)
+    return snapshot, group
+
+
 # --- Contract Award (CA) ----------------------------------------------------
 
 
 def test_contract_award_item_schedule_matches_proposal_exactly():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        # Live proposal (pre-snapshot) is still the ground truth to compare
+        # the frozen snapshot's rendered numbers against.
+        live_proposal = build_purchase_proposal(session, tender.id)
+        live_group = next(g for g in live_proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
         supplier.address = "Test Address"
         session.add(supplier)
         session.commit()
 
         content = generate_contract_award(
-            proposal.tender, group, supplier, contract_no="TEST-001", rules=DEFAULT_RULES,
+            tender, group, supplier, contract_no="TEST-001", rules=DEFAULT_RULES,
             contract_date=datetime.date(2026, 8, 12), agreement_date=datetime.date(2026, 8, 12),
         )
         doc = Document(BytesIO(content))
@@ -67,7 +80,7 @@ def test_contract_award_item_schedule_matches_proposal_exactly():
                 f"{ai.awarded_rate:,.2f}",
                 f"{ai.total_value:,.2f}",
             )
-            for ai in group.items
+            for ai in live_group.items
         ]
         assert rendered_rows == expected_rows
 
@@ -85,11 +98,10 @@ def test_contract_award_includes_opening_date():
         session.add(tender)
         session.commit()
 
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-OPEN", rules=DEFAULT_RULES)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-OPEN", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
         assert "15 Jul 2026" in full_text
         assert "{{" not in full_text and "{%" not in full_text
@@ -98,11 +110,10 @@ def test_contract_award_includes_opening_date():
 def test_contract_award_opening_date_placeholder_when_unset():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s SNS Enterprises")
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s SNS Enterprises")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
         assert "Tender Opening Date ___" in full_text
 
@@ -110,11 +121,10 @@ def test_contract_award_opening_date_placeholder_when_unset():
 def test_contract_award_amount_in_words_and_computed_fees():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s Awan Tech")
         supplier = session.get(Supplier, group.supplier_id)
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
 
         # Matches the real sample CA.doc's amount-in-words for this exact firm/value.
@@ -131,20 +141,19 @@ def test_security_deposit_waived_below_configured_threshold():
     above it still gets the normal percentage."""
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s Awan Tech")
         supplier = session.get(Supplier, group.supplier_id)
 
         # Threshold above this firm's contract value -> deposit waived (0.00).
         waived_rules = BusinessRules(security_deposit_percent=5.0, security_deposit_waived_below=10_000_000, stamp_duty_percent=0.25)
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-WAIVED", rules=waived_rules)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-WAIVED", rules=waived_rules)
         full_text = _full_text(Document(BytesIO(content)))
         assert "0.00" in full_text
         assert f"{group.store_value * 0.05:,.2f}" not in full_text
 
         # Threshold below this firm's contract value -> normal 5% still applies.
         applies_rules = BusinessRules(security_deposit_percent=5.0, security_deposit_waived_below=1, stamp_duty_percent=0.25)
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-APPLIES", rules=applies_rules)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-APPLIES", rules=applies_rules)
         full_text = _full_text(Document(BytesIO(content)))
         assert f"{group.store_value * 0.05:,.2f}" in full_text
 
@@ -160,12 +169,11 @@ def test_stamp_duty_and_security_deposit_are_both_based_on_store_value():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
         assert tender.tax_percent > 0  # otherwise this test can't distinguish the two bases
-        proposal = build_purchase_proposal(session, tender.id)
-        group = next(g for g in proposal.firm_groups if g.supplier_name == "M/s Awan Tech")
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s Awan Tech")
         supplier = session.get(Supplier, group.supplier_id)
         assert group.store_value != group.contract_value
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-1", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
 
         store_based_deposit = f"{group.store_value * 0.05:,.2f}"
@@ -186,13 +194,13 @@ def test_ampersand_in_firm_name_survives_rendering():
     See docx_export._esc()."""
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
-        proposal = build_purchase_proposal(session, tender.id)
-        group = proposal.firm_groups[0]
+        snapshot = save_proposal_snapshot(session, tender.id)
+        group = snapshot.firm_groups[0]
         supplier = session.get(Supplier, group.supplier_id)
         supplier.name = "M/s Test & Sons"
         group.supplier_name = "M/s Test & Sons"
 
-        content = generate_contract_award(proposal.tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
+        content = generate_contract_award(tender, group, supplier, contract_no="C-2", rules=DEFAULT_RULES)
         full_text = _full_text(Document(BytesIO(content)))
 
         assert "M/s Test & Sons" in full_text
@@ -207,20 +215,21 @@ def test_purchase_proposal_doc_lists_every_firm_group():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
         proposal = build_purchase_proposal(session, tender.id)
-        cs = build_comparative_statement(session, tender.id)
         for group in proposal.firm_groups:
             supplier = session.get(Supplier, group.supplier_id)
             supplier.address = f"Address for {supplier.name}"
             session.add(supplier)
         session.commit()
-        proposal = build_purchase_proposal(session, tender.id)
 
-        content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+        snapshot = save_proposal_snapshot(session, tender.id)
+        suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
+
+        content = generate_purchase_proposal_doc(tender, snapshot, suppliers_by_id)
         doc = Document(BytesIO(content))
         full_text = _full_text(doc)
 
         assert "{{" not in full_text and "{%" not in full_text
-        for group in proposal.firm_groups:
+        for group in snapshot.firm_groups:
             assert group.supplier_name in full_text
             assert f"{group.store_value:,.2f}" in full_text
             assert f"{group.contract_value:,.2f}" in full_text
@@ -239,17 +248,18 @@ def test_purchase_proposal_est_cost_uses_lpr_when_present():
     with _fresh_session() as session:
         tender = import_tender(CS_XLSX_PATH, session)
         proposal = build_purchase_proposal(session, tender.id)
-        cs = build_comparative_statement(session, tender.id)
 
         for group in proposal.firm_groups:
             for ai in group.items:
                 ai.item.lpr = ai.awarded_rate
                 session.add(ai.item)
         session.commit()
-        proposal = build_purchase_proposal(session, tender.id)
 
-        content = generate_purchase_proposal_doc(proposal.tender, proposal, cs.suppliers_by_id)
+        snapshot = save_proposal_snapshot(session, tender.id)
+        suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
+
+        content = generate_purchase_proposal_doc(tender, snapshot, suppliers_by_id)
         full_text = _full_text(Document(BytesIO(content)))
 
-        assert f"{proposal.grand_total.contract_value:,.2f}" in full_text
+        assert f"{snapshot.grand_contract_value:,.2f}" in full_text
         assert f"{tender.tax_percent:.2f}% inc" in full_text

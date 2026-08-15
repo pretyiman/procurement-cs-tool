@@ -9,6 +9,7 @@ from sqlmodel import Field, Relationship, SQLModel
 class TenderStatus(str, Enum):
     draft = "draft"
     proposal_generated = "proposal_generated"
+    proposal_approved = "proposal_approved"
     awarded = "awarded"
 
 
@@ -112,6 +113,118 @@ class TenderTemplate(SQLModel, table=True):
     name: str = Field(index=True, unique=True)
 
     lines: List["TenderTemplateItem"] = Relationship(back_populates="template")
+
+
+class ProposalSnapshot(SQLModel, table=True):
+    """A frozen record of the Purchase Proposal at the moment it was
+    generated - which firms won which items, at what rates, and the
+    totals - so a Contract Award always renders from what was actually
+    approved, never from whatever the live Item/Quote/catalog data says
+    today (which could have changed since - an award override, a renamed
+    Supplier, an edited ItemMaster description).
+
+    One row per tender (unique tender_id). Overwritten in place (this row
+    and all its firm_groups/items deleted and recreated) every time
+    "Generate Proposal" runs while status is still proposal_generated -
+    that's the revise-after-rejection cycle. Once approved_at is set
+    (status -> proposal_approved) it becomes read-only: no more
+    regenerating, and Contract Award downloads are only allowed from here
+    on, always reading this frozen data."""
+
+    __tablename__ = "proposal_snapshot"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tender_id: int = Field(foreign_key="tender.id", unique=True)
+    generated_at: datetime.datetime
+    approved_at: Optional[datetime.datetime] = None
+
+    # Document-detail fields as they were at generation time (Tender's own
+    # copies of these can't be edited after the item-lock work anyway, but
+    # freezing them here too means this snapshot is self-contained).
+    indent_no: str
+    department_name: Optional[str] = None
+    firms_invited_count: Optional[int] = None
+    issue_date: Optional[datetime.date] = None
+    opening_date: Optional[datetime.date] = None
+    delivery_days: int
+    warranty_months: int
+    tax_type: str
+    tax_percent: float
+    participating_firms_count: int  # every firm that quoted, win or not - for the PP doc's "X firms invited, Y quoted"
+    total_item_count: int  # every item on the RFQ, including any left unresolved (unlike grand_item_count below)
+
+    grand_item_count: int  # awarded items only - what's actually in this proposal's firm groups
+    grand_store_value: float
+    grand_tax_amount: float
+    grand_contract_value: float
+
+    firm_groups: List["ProposalSnapshotFirmGroup"] = Relationship(
+        back_populates="snapshot", sa_relationship_kwargs={"order_by": "ProposalSnapshotFirmGroup.supplier_name"}
+    )
+
+
+class ProposalSnapshotFirmGroup(SQLModel, table=True):
+    """One winning firm within a ProposalSnapshot. supplier_name is a
+    frozen copy (not just a live join through supplier_id) so a later
+    Supplier rename doesn't retroactively change an already-approved
+    proposal's history."""
+
+    __tablename__ = "proposal_snapshot_firm_group"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    snapshot_id: int = Field(foreign_key="proposal_snapshot.id")
+    supplier_id: int = Field(foreign_key="supplier.id")
+    supplier_name: str
+    store_value: float
+    tax_amount: float
+    contract_value: float
+
+    snapshot: Optional[ProposalSnapshot] = Relationship(back_populates="firm_groups")
+    items: List["ProposalSnapshotItem"] = Relationship(
+        back_populates="firm_group", sa_relationship_kwargs={"order_by": "ProposalSnapshotItem.ser"}
+    )
+
+
+class ProposalSnapshotItem(SQLModel, table=True):
+    """One awarded line item within a ProposalSnapshotFirmGroup - part
+    no./description/unit frozen as text (not a live ItemMaster join),
+    same reasoning as supplier_name above."""
+
+    __tablename__ = "proposal_snapshot_item"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    firm_group_id: int = Field(foreign_key="proposal_snapshot_firm_group.id")
+    ser: int
+    part_no: str
+    description: str
+    unit: str
+    qty: float
+    rate: float
+    total_value: float
+    lpr: Optional[float] = None  # frozen Last Purchase Rate, for the PP doc's Inc/Dec% - see number_words/docx_export
+    is_override: bool = False
+    override_reason: Optional[str] = None
+
+    firm_group: Optional[ProposalSnapshotFirmGroup] = Relationship(back_populates="items")
+
+
+class ContractAward(SQLModel, table=True):
+    """A persisted contract number for one winning firm on one tender's
+    approved proposal. contract_no is a different number series than the
+    RFQ's inquiry_no - assigned per firm, only once a ProposalSnapshot is
+    approved, so a Contract Award page can show/reuse the same number on
+    every visit instead of re-asking. Finalizing a tender to `awarded`
+    requires every firm in the approved snapshot to have one of these."""
+
+    __tablename__ = "contract_award"
+    __table_args__ = (UniqueConstraint("snapshot_id", "supplier_id", name="uq_contract_award_snapshot_supplier"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    snapshot_id: int = Field(foreign_key="proposal_snapshot.id")
+    supplier_id: int = Field(foreign_key="supplier.id")
+    contract_no: str
+    contract_date: Optional[datetime.date] = None
+    created_at: datetime.datetime
 
 
 class BusinessRules(SQLModel, table=True):

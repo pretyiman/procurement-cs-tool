@@ -12,7 +12,7 @@ changes; code and `PLAN.md` verification steps should match it.
 | inquiry_no | text | e.g. "Tender Inquiry No. xxxxx" |
 | tax_type | enum | `GST` or `PST` - user-selected per tender |
 | tax_percent | decimal | e.g. 18.0; applies to whichever tax_type is selected |
-| status | enum | `draft` -> `proposal_generated` -> `awarded` |
+| status | enum | `draft` -> `proposal_generated` -> `proposal_approved` -> `awarded` (see ProposalSnapshot below) |
 | awarded_date | date, nullable | set when status -> `awarded`; feeds LPR history (see below) |
 | indent_no | text, nullable | for PP/CA documents; defaults to inquiry_no when rendering if blank |
 | department_id | int, FK -> Department, nullable | for PP; picked from the reusable Department catalog (see below) |
@@ -155,6 +155,64 @@ names (`prep_by_designation`, `checked_by_designation`,
 CS Excel export to show a designation/rank line under the matching
 signature role, since that layout is fixed cells (openpyxl), not
 template-tag-driven like the Word docs.
+
+### ProposalSnapshot (frozen Purchase Proposal, one per tender)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| tender_id | int, FK -> Tender, unique | one row per tender |
+| generated_at | datetime | set every time "Generate Proposal" runs |
+| approved_at | datetime, nullable | set by "Approve Proposal" - once set, the snapshot is read-only |
+| indent_no, department_name, firms_invited_count, issue_date, opening_date, delivery_days, warranty_months, tax_type, tax_percent, participating_firms_count, total_item_count | copies | Tender's document-detail fields as they were at generation time |
+| grand_item_count, grand_store_value, grand_tax_amount, grand_contract_value | numbers | awarded-items-only totals (unlike `total_item_count`, which includes unresolved items) |
+
+The lifecycle is `draft` -> `proposal_generated` -> `proposal_approved` ->
+`awarded` (see Tender.status above). `app/proposal_snapshot.py`'s
+`save_proposal_snapshot()` builds this (and its firm_groups/items below)
+from the *live* award state every time "Generate Proposal" runs, deleting
+and recreating the whole snapshot - that's the intended revise-after-
+rejection cycle while still `proposal_generated`. `approve_proposal_snapshot()`
+sets `approved_at` and moves status to `proposal_approved`, after which
+`save_proposal_snapshot()` refuses to run again. Both `generate_contract_award()`
+and `generate_purchase_proposal_doc()` (`docx_export.py`) render only from
+this frozen data from `proposal_generated` onward, never from live
+Item/Quote/catalog state - see ProposalSnapshotFirmGroup/Item below for why.
+
+### ProposalSnapshotFirmGroup / ProposalSnapshotItem
+| field | type | notes |
+|---|---|---|
+| ProposalSnapshotFirmGroup.snapshot_id | int, FK -> ProposalSnapshot | |
+| ProposalSnapshotFirmGroup.supplier_id | int, FK -> Supplier | |
+| ProposalSnapshotFirmGroup.supplier_name | text | **frozen copy**, not just a live join - a later Supplier rename can't retroactively change an approved proposal's history |
+| ProposalSnapshotFirmGroup.store_value / tax_amount / contract_value | decimal | this firm's totals, frozen |
+| ProposalSnapshotItem.firm_group_id | int, FK -> ProposalSnapshotFirmGroup | |
+| ProposalSnapshotItem.ser / part_no / description / unit / qty / rate / total_value | frozen copies | same reasoning as supplier_name - protects against a later ItemMaster edit |
+| ProposalSnapshotItem.lpr | decimal, nullable | frozen Last Purchase Rate, for the PP doc's Inc/Dec% |
+| ProposalSnapshotItem.is_override / override_reason | | frozen copy of the award override, if any |
+
+One winning firm per ProposalSnapshotFirmGroup, one awarded line item per
+ProposalSnapshotItem - together they're a full frozen copy of one firm's
+slice of the proposal, everything a Contract Award document needs.
+Supplier's *address* is the one deliberate exception left un-frozen (looked
+up live at render time) - see the docx_export.py module docstring.
+
+### ContractAward (persisted contract number, one per snapshot+firm)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | |
+| snapshot_id | int, FK -> ProposalSnapshot | |
+| supplier_id | int, FK -> Supplier | |
+| contract_no | text | a **different number series than `Tender.inquiry_no`** - the RFQ/inquiry number identifies the solicitation, the contract number identifies one specific awarded contract with one firm, assigned later |
+| contract_date | date, nullable | |
+| created_at | datetime | |
+
+Unique on `(snapshot_id, supplier_id)`. Created/updated by
+`proposal_snapshot.upsert_contract_award()` the first time a firm's
+Contract Award is downloaded (`/tenders/{id}/proposal/contract/{supplier_id}`),
+so re-downloading later reuses the same number instead of asking again.
+Finalizing a tender to `awarded` (`mark_awarded` in `main.py`) requires
+every firm in the approved snapshot to have one of these -
+`proposal_snapshot.all_firms_have_contract_award()`.
 
 ## Derived (never stored, always computed)
 

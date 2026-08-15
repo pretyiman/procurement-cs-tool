@@ -5,26 +5,54 @@
 <p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/award">Award Review</a></p>
 <p>
   <a class="btn" href="/tenders/{{ tender.id }}/proposal/export">Export to Excel</a>
-  {% if proposal.firm_groups %}
+  {% if snapshot %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document">Download Purchase Proposal (Word)</a>
+  {% endif %}
+  {% if tender.status.value in ("proposal_approved", "awarded") %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/contracts.zip">Download all contract awards (.zip)</a>
   {% endif %}
 </p>
 
 <div class="card">
   <p class="muted" style="margin-top:0">Status: <strong>{{ tender.status.value }}</strong></p>
-  {% if tender.status.value == "draft" and proposal.firm_groups %}
-  <form method="post" action="/tenders/{{ tender.id }}/generate-proposal">
-    <button type="submit">Mark proposal as generated</button>
-  </form>
+
+  {% if tender.status.value == "draft" %}
+    {% if proposal.firm_groups %}
+    <form method="post" action="/tenders/{{ tender.id }}/generate-proposal">
+      <button type="submit">Generate Proposal</button>
+    </form>
+    {% else %}
+    <p class="muted" style="margin-bottom:0">Award at least one item (Award Review) before generating the proposal.</p>
+    {% endif %}
+
   {% elif tender.status.value == "proposal_generated" %}
-  <form method="post" action="/tenders/{{ tender.id }}/mark-awarded">
-    <button type="submit">Finalize - mark RFQ as awarded</button>
-  </form>
+    <p class="muted">
+      Generated {{ snapshot.generated_at.strftime('%d %b %Y, %H:%M') }}. This is a working draft - go back to
+      <a href="/tenders/{{ tender.id }}/award">Award Review</a> and click Generate again if anything needs to change
+      (e.g. the approving authority asked for a revision). Approving locks it and enables Contract Award generation.
+    </p>
+    <form method="post" action="/tenders/{{ tender.id }}/generate-proposal" style="display:inline">
+      <button type="submit" class="btn-secondary">Regenerate Proposal</button>
+    </form>
+    <form method="post" action="/tenders/{{ tender.id }}/approve-proposal" style="display:inline">
+      <button type="submit">Approve Proposal</button>
+    </form>
+
+  {% elif tender.status.value == "proposal_approved" %}
+    <p class="muted">
+      Approved {{ snapshot.approved_at.strftime('%d %b %Y, %H:%M') }}. Award decisions and the proposal are now
+      locked. Download each firm's Contract Award below, then finalize once every firm has a contract number.
+    </p>
+    {% if all_have_contract_award %}
+    <form method="post" action="/tenders/{{ tender.id }}/mark-awarded">
+      <button type="submit">Finalize - mark RFQ as awarded</button>
+    </form>
+    {% else %}
+    <p class="muted" style="margin-bottom:0">Every awarded firm needs a Contract Award (download it below, with a contract number) before you can finalize.</p>
+    {% endif %}
+
   {% elif tender.status.value == "awarded" %}
-  <p class="muted" style="margin-bottom:0">This RFQ is finalized - all contracts have been awarded.</p>
-  {% else %}
-  <p class="muted" style="margin-bottom:0">Award at least one item (Award Review) before generating the proposal.</p>
+  <p class="muted" style="margin-bottom:0">This RFQ is finalized - all contracts have been awarded ({{ tender.awarded_date.strftime('%d %b %Y') if tender.awarded_date }}).</p>
   {% endif %}
 </div>
 
@@ -80,15 +108,68 @@
   </form>
 </details>
 
-{% for group in proposal.firm_groups %}
+{% if snapshot %}
+{# Status is proposal_generated or later - show the frozen snapshot, not
+   live award state, so this page always matches what downloads produce. #}
+{% for group in snapshot.firm_groups %}
 <h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)</h2>
-<form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form" style="margin-bottom:0.75rem">
+{% if tender.status.value in ("proposal_approved", "awarded") %}
+{% set existing_ca = contract_awards_by_supplier.get(group.supplier_id) %}
+<form method="post" action="/tenders/{{ tender.id }}/proposal/contract/{{ group.supplier_id }}" class="row-form" style="margin-bottom:0.25rem">
   <div class="field" style="max-width:260px">
     <label for="contract_no_{{ group.supplier_id }}">Contract No. (for Contract Award document)</label>
-    <input type="text" id="contract_no_{{ group.supplier_id }}" name="contract_no" required>
+    <input type="text" id="contract_no_{{ group.supplier_id }}" name="contract_no" required value="{{ existing_ca.contract_no if existing_ca else '' }}">
   </div>
-  <button type="submit">Download Contract Award (Word)</button>
+  <button type="submit">{{ 'Re-download' if existing_ca else 'Download' }} Contract Award (Word)</button>
 </form>
+{% if existing_ca %}<p class="muted" style="margin-top:0;margin-bottom:0.75rem">Contract No. <strong>{{ existing_ca.contract_no }}</strong> already issued for this firm.</p>{% endif %}
+{% endif %}
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total Value</th></tr>
+    </thead>
+    <tbody>
+      {% for item in group.items %}
+      <tr>
+        <td>{{ item.ser }}</td>
+        <td>{{ item.part_no }}</td>
+        <td>{{ item.description }}
+          {% if item.is_override %}<br><small class="muted">override: {{ item.override_reason }}</small>{% endif %}
+        </td>
+        <td>{{ item.unit }}</td>
+        <td class="num">{{ item.qty }}</td>
+        <td class="num">{{ '%.2f'|format(item.rate) }}</td>
+        <td class="num">{{ '%.2f'|format(item.total_value) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="totals-row">
+        <td colspan="6">Store Value / {{ tender.tax_type.value }} / Contract Value</td>
+        <td class="num">{{ '%.2f'|format(group.store_value) }} / {{ '%.2f'|format(group.tax_amount) }} / {{ '%.2f'|format(group.contract_value) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+<h2>Grand Total</h2>
+<div class="card">
+  <table>
+    <tbody>
+      <tr class="totals-row">
+        <td>Items</td><td class="num">{{ snapshot.grand_item_count }}</td>
+      </tr>
+      <tr><td>Store Value</td><td class="num">{{ '%.2f'|format(snapshot.grand_store_value) }}</td></tr>
+      <tr><td>{{ tender.tax_type.value }}</td><td class="num">{{ '%.2f'|format(snapshot.grand_tax_amount) }}</td></tr>
+      <tr class="totals-row"><td>Contract Value</td><td class="num">{{ '%.2f'|format(snapshot.grand_contract_value) }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+{# Still draft, nothing generated yet - preview the live award state. #}
+{% for group in proposal.firm_groups %}
+<h2>{{ group.supplier_name }} &mdash; {{ group.items|length }} item(s)</h2>
 <div class="card">
   <table>
     <thead>
@@ -122,7 +203,7 @@
 {% if proposal.unresolved_items %}
 <h2>Unresolved items</h2>
 <div class="card">
-  <p class="muted">Not quoted by any firm, or an override became invalid - resolve these in Award Review before finalizing.</p>
+  <p class="muted">Not quoted by any firm, or an override became invalid - resolve these in Award Review before generating the proposal.</p>
   <table>
     <thead><tr><th>Ser</th><th>Part No</th><th>Description</th><th>Unit</th><th class="num">Qty</th></tr></thead>
     <tbody>
@@ -150,6 +231,7 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 
 <script>
   initSearchSelect('department-search', {{ departments_json | safe }}, {

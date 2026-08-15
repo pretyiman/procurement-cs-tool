@@ -33,6 +33,14 @@ from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
 from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
+from .proposal_snapshot import (
+    all_firms_have_contract_award,
+    approve_proposal_snapshot,
+    get_contract_award,
+    get_snapshot,
+    save_proposal_snapshot,
+    upsert_contract_award,
+)
 from .template_manager import (
     TEMPLATE_NAMES,
     convert_doc_to_docx,
@@ -913,7 +921,8 @@ def award_review(tender_id: int, request: Request, session: Session = Depends(ge
             }
         )
 
-    return templates.TemplateResponse(request, "award_review.html", {"tender": tender, "rows": rows})
+    locked = tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated)
+    return templates.TemplateResponse(request, "award_review.html", {"tender": tender, "rows": rows, "locked": locked})
 
 
 @app.post("/tenders/{tender_id}/items/{item_id}/award")
@@ -927,6 +936,8 @@ def set_award_override(
     item = session.get(Item, item_id)
     if item is None or item.tender_id != tender_id:
         raise HTTPException(404, "Item not found")
+    if item.tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated):
+        raise HTTPException(400, "Award decisions lock once the proposal is approved - generate a fresh proposal isn't possible after that point")
 
     cs = build_comparative_statement(session, tender_id)
     result = next((r for r in cs.item_results if r.item.id == item_id), None)
@@ -956,12 +967,27 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
     if tender is None:
         raise HTTPException(404, "Tender not found")
     proposal = build_purchase_proposal(session, tender_id)
+    snapshot = get_snapshot(session, tender_id)
+    contract_awards_by_supplier = {}
+    all_have_contract_award = False
+    if snapshot is not None:
+        contract_awards_by_supplier = {
+            g.supplier_id: get_contract_award(session, snapshot.id, g.supplier_id) for g in snapshot.firm_groups
+        }
+        all_have_contract_award = all_firms_have_contract_award(session, snapshot.id)
     departments = session.exec(select(Department).order_by(Department.name)).all()
     departments_json = _json_for_script([{"id": d.id, "label": d.name} for d in departments])
     return templates.TemplateResponse(
         request,
         "purchase_proposal.html",
-        {"tender": tender, "proposal": proposal, "departments_json": departments_json},
+        {
+            "tender": tender,
+            "proposal": proposal,
+            "snapshot": snapshot,
+            "contract_awards_by_supplier": contract_awards_by_supplier,
+            "all_have_contract_award": all_have_contract_award,
+            "departments_json": departments_json,
+        },
     )
 
 
@@ -970,12 +996,19 @@ def generate_proposal(tender_id: int, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
-    proposal = build_purchase_proposal(session, tender_id)
-    if not proposal.firm_groups:
-        raise HTTPException(400, "Award at least one item before generating the proposal")
-    tender.status = TenderStatus.proposal_generated
-    session.add(tender)
-    session.commit()
+    try:
+        save_proposal_snapshot(session, tender_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
+
+
+@app.post("/tenders/{tender_id}/approve-proposal")
+def approve_proposal_route(tender_id: int, session: Session = Depends(get_session)):
+    try:
+        approve_proposal_snapshot(session, tender_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return RedirectResponse(f"/tenders/{tender_id}/proposal", status_code=303)
 
 
@@ -984,8 +1017,11 @@ def mark_awarded(tender_id: int, session: Session = Depends(get_session)):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
-    if tender.status != TenderStatus.proposal_generated:
-        raise HTTPException(400, "Generate the proposal before finalizing the award")
+    if tender.status != TenderStatus.proposal_approved:
+        raise HTTPException(400, "Approve the proposal before finalizing the award")
+    snapshot = get_snapshot(session, tender_id)
+    if snapshot is None or not all_firms_have_contract_award(session, snapshot.id):
+        raise HTTPException(400, "Every awarded firm needs a Contract Award (with a contract number) before finalizing")
     tender.status = TenderStatus.awarded
     tender.awarded_date = datetime.date.today()
     session.add(tender)
@@ -1012,6 +1048,18 @@ def _safe_filename_part(name: str) -> str:
     return "".join(c if c.isalnum() or c in " -_" else "_" for c in name).strip()
 
 
+def _require_approved_snapshot(session: Session, tender: Tender):
+    """CA generation is only allowed once the proposal has been approved
+    (or the tender is already fully awarded) - and always renders from
+    that frozen snapshot, never from live Item/Quote/catalog state."""
+    if tender.status not in (TenderStatus.proposal_approved, TenderStatus.awarded):
+        raise HTTPException(400, "Approve the proposal before generating a Contract Award")
+    snapshot = get_snapshot(session, tender.id)
+    if snapshot is None:
+        raise HTTPException(400, "No approved proposal found")
+    return snapshot
+
+
 @app.post("/tenders/{tender_id}/proposal/contract/{supplier_id}")
 def download_contract_draft(
     tender_id: int,
@@ -1026,14 +1074,19 @@ def download_contract_draft(
     if supplier is None:
         raise HTTPException(404, "Supplier not found")
 
-    proposal = build_purchase_proposal(session, tender_id)
-    group = next((g for g in proposal.firm_groups if g.supplier_id == supplier_id), None)
+    snapshot = _require_approved_snapshot(session, tender)
+    group = next((g for g in snapshot.firm_groups if g.supplier_id == supplier_id), None)
     if group is None:
         raise HTTPException(400, "This supplier has no items awarded on this tender")
 
+    try:
+        upsert_contract_award(session, snapshot.id, supplier_id, contract_no)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
     rules = get_business_rules(session)
     content = generate_contract_award(
-        proposal.tender, group, supplier, contract_no=contract_no, rules=rules,
+        tender, group, supplier, contract_no=contract_no, rules=rules,
         custom_fields=custom_fields_dict_for_tender(session, tender),
     )
     filename = f"contract-award-{_safe_filename_part(group.supplier_name)}.docx"
@@ -1050,21 +1103,24 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
-    proposal = build_purchase_proposal(session, tender_id)
-    if not proposal.firm_groups:
-        raise HTTPException(400, "No items have been awarded to any firm yet")
+    snapshot = _require_approved_snapshot(session, tender)
 
     rules = get_business_rules(session)
     fields = custom_fields_dict_for_tender(session, tender)
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for group in proposal.firm_groups:
+        for group in snapshot.firm_groups:
             supplier = session.get(Supplier, group.supplier_id)
-            # No per-firm contract no. collected in a bulk download - a
-            # reasonable auto-generated placeholder, editable in Word after.
-            auto_contract_no = f"{tender.inquiry_no} / {group.supplier_name}"
+            # Reuse whatever contract number is already on record for this
+            # firm (e.g. entered via a single-firm download); only fall
+            # back to an auto-generated placeholder - and persist it, so
+            # later visits (including the finalize gate) see the same
+            # number this zip actually used.
+            existing = get_contract_award(session, snapshot.id, group.supplier_id)
+            contract_no = existing.contract_no if existing else f"{tender.inquiry_no} / {group.supplier_name}"
+            upsert_contract_award(session, snapshot.id, group.supplier_id, contract_no)
             content = generate_contract_award(
-                proposal.tender, group, supplier, contract_no=auto_contract_no, rules=rules,
+                tender, group, supplier, contract_no=contract_no, rules=rules,
                 custom_fields=fields,
             )
             zf.writestr(f"contract-award-{_safe_filename_part(group.supplier_name)}.docx", content)
@@ -1118,13 +1174,13 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
     if tender is None:
         raise HTTPException(404, "Tender not found")
 
-    proposal = build_purchase_proposal(session, tender_id)
-    cs = build_comparative_statement(session, tender_id)
-    if not proposal.firm_groups:
-        raise HTTPException(400, "No items have been awarded to any firm yet")
+    snapshot = get_snapshot(session, tender_id)
+    if snapshot is None:
+        raise HTTPException(400, "Generate the proposal first")
 
+    suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
     content = generate_purchase_proposal_doc(
-        proposal.tender, proposal, cs.suppliers_by_id, custom_fields=custom_fields_dict_for_tender(session, tender)
+        tender, snapshot, suppliers_by_id, custom_fields=custom_fields_dict_for_tender(session, tender)
     )
     filename = f"purchase-proposal-tender-{tender_id}.docx"
     return Response(

@@ -73,7 +73,7 @@ def test_generate_proposal_requires_at_least_one_awarded_item():
         app.dependency_overrides.clear()
 
 
-def test_full_lifecycle_draft_to_proposal_generated_to_awarded():
+def test_full_lifecycle_draft_to_proposal_approved_to_awarded():
     client, engine = _make_client()
     try:
         tender_id = _tender_with_one_awarded_item(client, engine)
@@ -81,7 +81,7 @@ def test_full_lifecycle_draft_to_proposal_generated_to_awarded():
         with Session(engine) as session:
             assert session.get(Tender, tender_id).status == TenderStatus.draft
 
-        # Can't finalize before generating the proposal.
+        # Can't finalize before generating (let alone approving) the proposal.
         resp = client.post(f"/tenders/{tender_id}/mark-awarded")
         assert resp.status_code == 400
 
@@ -89,6 +89,41 @@ def test_full_lifecycle_draft_to_proposal_generated_to_awarded():
         assert resp.status_code == 303
         with Session(engine) as session:
             assert session.get(Tender, tender_id).status == TenderStatus.proposal_generated
+
+        # Regenerating is allowed while still proposal_generated (the
+        # revise-after-rejection cycle) - award-editing isn't locked yet.
+        resp = client.post(f"/tenders/{tender_id}/generate-proposal", follow_redirects=False)
+        assert resp.status_code == 303
+
+        # Can't finalize before approving.
+        resp = client.post(f"/tenders/{tender_id}/mark-awarded")
+        assert resp.status_code == 400
+
+        resp = client.post(f"/tenders/{tender_id}/approve-proposal", follow_redirects=False)
+        assert resp.status_code == 303
+        with Session(engine) as session:
+            assert session.get(Tender, tender_id).status == TenderStatus.proposal_approved
+
+        # Once approved, regenerating is no longer allowed.
+        resp = client.post(f"/tenders/{tender_id}/generate-proposal")
+        assert resp.status_code == 400
+
+        # Can't finalize until every awarded firm has a Contract Award.
+        resp = client.post(f"/tenders/{tender_id}/mark-awarded")
+        assert resp.status_code == 400
+
+        from app.models import ProposalSnapshotFirmGroup
+
+        with Session(engine) as session:
+            group = session.exec(select(ProposalSnapshotFirmGroup)).one()
+            supplier_id = group.supplier_id
+
+        resp = client.post(
+            f"/tenders/{tender_id}/proposal/contract/{supplier_id}",
+            data={"contract_no": "CA-001"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 200
 
         resp = client.post(f"/tenders/{tender_id}/mark-awarded", follow_redirects=False)
         assert resp.status_code == 303

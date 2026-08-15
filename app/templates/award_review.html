@@ -9,6 +9,10 @@
 </p>
 <p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal &rarr;</a></p>
 
+{% if locked %}
+<div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
+{% endif %}
+
 <div class="card">
   <table>
     <thead>
@@ -34,7 +38,16 @@
           {% endif %}
         </td>
         <td>
-          {% if row.options %}
+          {% if locked and row.options %}
+          {% for sid, name, rate in row.options %}
+          <span class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
+            {{ name }} @ {{ '%.2f'|format(rate) }}
+            {% if sid == row.lowest_supplier_id %}<span class="badge">Lowest</span>{% endif %}
+          </span>
+          {% endfor %}
+          {% elif locked %}
+          <span class="nq">no firm quoted this item</span>
+          {% elif row.options %}
           <form method="post" action="/tenders/{{ tender.id }}/items/{{ row.item.id }}/award">
             <input type="text" name="award_reason" placeholder="Reason (required if not lowest)"
                    value="{{ row.override_reason or '' }}"
