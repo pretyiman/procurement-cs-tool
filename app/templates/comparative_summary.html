@@ -13,6 +13,14 @@
 {% set current = "comparative_summary" %}
 {% include "_phase_nav.html" %}
 
+<div class="stat-grid">
+  <div class="stat-card"><div class="value">{{ items|length }}</div><div class="label">Items</div></div>
+  <div class="stat-card"><div class="value">{{ quoting_suppliers|length }}</div><div class="label">Suppliers</div></div>
+  <div class="stat-card"><div class="value">{{ full_bidders_count }}</div><div class="label" title="Suppliers who quoted every item on this RFQ">Full bidders</div></div>
+  <div class="stat-card"><div class="value">{{ items_unresolved_count }}</div><div class="label">Unresolved (NQ by all)</div></div>
+  <div class="stat-card"><div class="value">{{ tied_item_count }}</div><div class="label">Tied items</div></div>
+</div>
+
 {% if locked %}
 <div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
 {% endif %}
@@ -83,14 +91,6 @@
 {% include "_comparative_summary_grid.html" %}
 
 <h2>Supplier Analysis</h2>
-<div class="stat-grid">
-  <div class="stat-card"><div class="value">{{ items|length }}</div><div class="label">Items</div></div>
-  <div class="stat-card"><div class="value">{{ total_quotes_count }}</div><div class="label">Quotes received</div></div>
-  <div class="stat-card"><div class="value">{{ quoting_suppliers|length }}</div><div class="label">Suppliers</div></div>
-  <div class="stat-card"><div class="value">{{ items_unresolved_count }}</div><div class="label">Unresolved (NQ by all)</div></div>
-  <div class="stat-card"><div class="value">{{ tied_item_count }}</div><div class="label">Tied items</div></div>
-</div>
-
 <div class="card">
   <h2 style="margin-top:0">Who's cheapest, and how often</h2>
   <p class="muted" style="margin-top:0">

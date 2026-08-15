@@ -1022,6 +1022,7 @@ def comparative_summary_view(
     # sort/compare suppliers entirely client-side, no server round-trip.
     items_unresolved_count = sum(1 for r in cs.item_results if r.lowest_supplier_id is None)
     tied_item_count = sum(1 for r in cs.item_results if r.is_tied)
+    full_bidders_count = sum(1 for p in cs.package_totals if p.fully_quoted)
     tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
 
     item_results_by_item_id = {r.item.id: r for r in cs.item_results}
@@ -1066,7 +1067,7 @@ def comparative_summary_view(
             "package_totals": _package_limit_slice(cs.package_totals, package_limit),
             "package_totals_total_count": len(cs.package_totals),
             "lowest_count_leaderboard": cs.lowest_count_leaderboard,
-            "total_quotes_count": cs.total_quotes_count,
+            "full_bidders_count": full_bidders_count,
             "items_unresolved_count": items_unresolved_count,
             "tied_item_count": tied_item_count,
             "tied_package_supplier_ids": tied_package_supplier_ids,

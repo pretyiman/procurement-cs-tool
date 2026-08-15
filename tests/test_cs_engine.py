@@ -220,18 +220,6 @@ def test_lowest_count_leaderboard_partitions_items_cleanly():
         assert [s.supplier_name for s in cs.lowest_count_leaderboard] == ["Supplier A", "Supplier B"]
 
 
-def test_total_quotes_count_matches_actual_quote_rows():
-    with _fresh_session() as session:
-        _make_tender_with_items_and_quotes(
-            session,
-            1,
-            {
-                1: {"Supplier A": 10, "Supplier B": 20},
-                2: {"Supplier A": 10, "Supplier B": None},  # NQ - shouldn't count
-            },
-        )
-        cs = build_comparative_statement(session, 1)
-        assert cs.total_quotes_count == 3
 
 
 def test_package_ranking_is_deterministic_on_a_tie():

@@ -89,7 +89,6 @@ class ComparativeStatement:
     grand_total: GrandTotal
     suppliers_by_id: Dict[int, Supplier]
     package_totals: List[PackageTotal]
-    total_quotes_count: int
     lowest_count_leaderboard: List[SupplierLowestCount]
 
 
@@ -285,6 +284,5 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
         grand_total=grand_total,
         suppliers_by_id=suppliers_by_id,
         package_totals=package_totals,
-        total_quotes_count=sum(1 for q in quotes if q.rate is not None),
         lowest_count_leaderboard=lowest_count_leaderboard,
     )

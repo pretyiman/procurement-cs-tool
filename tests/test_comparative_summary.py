@@ -104,10 +104,11 @@ def test_item_view_tie_badge_and_stats_bar():
         resp = client.get(f"/tenders/{tender_id}/comparative-summary")
         assert resp.status_code == 200
         assert "TIE" in resp.text
-        # Stats bar: 2 items, 4 quotes, 2 suppliers, 0 unresolved, 1 tied item.
+        # Stats bar: 2 items, 2 suppliers, both full bidders, 0 unresolved, 1 tied item.
         assert '<div class="value">2</div><div class="label">Items</div>' in resp.text
-        assert '<div class="value">4</div><div class="label">Quotes received</div>' in resp.text
         assert '<div class="value">2</div><div class="label">Suppliers</div>' in resp.text
+        assert resp.text.count('<div class="label" title="Suppliers who quoted every item on this RFQ">Full bidders</div>') == 1
+        assert '<div class="value">2</div><div class="label" title="Suppliers who quoted every item on this RFQ">Full bidders</div>' in resp.text
         assert '<div class="value">1</div><div class="label">Tied items</div>' in resp.text
     finally:
         app.dependency_overrides.clear()
