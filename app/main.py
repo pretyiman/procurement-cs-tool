@@ -108,6 +108,23 @@ def _items_locked(tender: Tender) -> bool:
     return False
 
 
+def _package_limit_slice(package_totals: list, package_limit: str) -> list:
+    if not package_limit.strip() or package_limit.strip().lower() == "all":
+        return package_totals
+    try:
+        n = int(package_limit)
+    except ValueError:
+        return package_totals
+    return package_totals[:n]
+
+
+def _tied_package_supplier_ids(package_totals: list) -> list:
+    if package_totals and package_totals[0].fully_quoted:
+        top_value = package_totals[0].contract_value
+        return [p.supplier_id for p in package_totals if p.fully_quoted and p.contract_value == top_value]
+    return []
+
+
 def _phase_landing_url(session: Session, tender: Tender) -> str:
     """Where "opening" this RFQ (from a list) should land, based on how
     far along it actually is - so resuming work shows what to do next
@@ -824,6 +841,7 @@ def quote_entry_form(
     request: Request,
     supplier_id: str = "",
     view: str = "item",
+    package_limit: str = "",
     session: Session = Depends(get_session),
 ):
     tender = session.get(Tender, tender_id)
@@ -859,6 +877,8 @@ def quote_entry_form(
     all_quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
     full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in all_quotes}
     lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in cs.item_results}
+    tied_by_item_id = {r.item.id: r.tied_supplier_ids for r in cs.item_results}
+    tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
 
     return templates.TemplateResponse(
         request,
@@ -872,8 +892,11 @@ def quote_entry_form(
             "quoting_suppliers": quoting_suppliers,
             "full_rate_matrix": full_rate_matrix,
             "lowest_by_item_id": lowest_by_item_id,
+            "tied_by_item_id": tied_by_item_id,
             "view": "package" if view == "package" else "item",
-            "package_totals": cs.package_totals,
+            "package_totals": _package_limit_slice(cs.package_totals, package_limit),
+            "package_totals_total_count": len(cs.package_totals),
+            "tied_package_supplier_ids": tied_package_supplier_ids,
         },
     )
 
@@ -932,7 +955,11 @@ async def submit_quote_entry(tender_id: int, request: Request, session: Session 
 
 @app.get("/tenders/{tender_id}/comparative-summary", response_class=HTMLResponse)
 def comparative_summary_view(
-    tender_id: int, request: Request, view: str = "item", session: Session = Depends(get_session)
+    tender_id: int,
+    request: Request,
+    view: str = "item",
+    package_limit: str = "",
+    session: Session = Depends(get_session),
 ):
     tender = session.get(Tender, tender_id)
     if tender is None:
@@ -975,6 +1002,8 @@ def comparative_summary_view(
                 "invalid_override": ai.invalid_override,
                 "override_reason": ai.override_reason,
                 "options": options_by_item.get(ai.item.id, []),
+                "is_tied": result.is_tied,
+                "tied_names": [cs.suppliers_by_id[sid].name for sid in result.tied_supplier_ids],
             }
         )
 
@@ -985,7 +1014,40 @@ def comparative_summary_view(
     items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
     quoting_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
     grid_lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in cs.item_results}
+    grid_tied_by_item_id = {r.item.id: r.tied_supplier_ids for r in cs.item_results}
     full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in quotes}
+
+    # Analysis panel: a leaderboard of who's cheapest and how often, plus
+    # coverage stats and enough raw data (as JSON) for the page to filter/
+    # sort/compare suppliers entirely client-side, no server round-trip.
+    items_unresolved_count = sum(1 for r in cs.item_results if r.lowest_supplier_id is None)
+    tied_item_count = sum(1 for r in cs.item_results if r.is_tied)
+    tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
+
+    item_results_by_item_id = {r.item.id: r for r in cs.item_results}
+    analysis_json = _json_for_script(
+        {
+            "items": [
+                {
+                    "id": item.id,
+                    "ser": item.ser,
+                    "partNo": item.item_master.part_no,
+                    "description": item.item_master.description,
+                    "unit": item.item_master.default_unit,
+                    "qty": item.qty,
+                    "lowestSupplierId": item_results_by_item_id[item.id].lowest_supplier_id,
+                    "isTied": item_results_by_item_id[item.id].is_tied,
+                }
+                for item in items
+            ],
+            "suppliers": [{"id": s.id, "name": s.name} for s in quoting_suppliers],
+            "rates": {
+                f"{item_id}_{supplier_id}": rate
+                for (item_id, supplier_id), rate in full_rate_matrix.items()
+                if rate is not None
+            },
+        }
+    )
 
     locked = tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated)
     return templates.TemplateResponse(
@@ -999,8 +1061,16 @@ def comparative_summary_view(
             "quoting_suppliers": quoting_suppliers,
             "full_rate_matrix": full_rate_matrix,
             "lowest_by_item_id": grid_lowest_by_item_id,
+            "tied_by_item_id": grid_tied_by_item_id,
             "view": "package" if view == "package" else "item",
-            "package_totals": cs.package_totals,
+            "package_totals": _package_limit_slice(cs.package_totals, package_limit),
+            "package_totals_total_count": len(cs.package_totals),
+            "lowest_count_leaderboard": cs.lowest_count_leaderboard,
+            "total_quotes_count": cs.total_quotes_count,
+            "items_unresolved_count": items_unresolved_count,
+            "tied_item_count": tied_item_count,
+            "tied_package_supplier_ids": tied_package_supplier_ids,
+            "analysis_json": analysis_json,
         },
     )
 

@@ -152,7 +152,12 @@ app/
                                            # once the proposal is approved) + the
                                            # same _comparative_summary_grid.html
                                            # partial as Quote Entry, so both stay in
-                                           # sync from one shared fragment
+                                           # sync from one shared fragment + a
+                                           # Supplier Analysis panel (stats, lowest-
+                                           # count leaderboard, tie badges, a
+                                           # client-side-filtered supplier-compare
+                                           # table with a live price-gap column -
+                                           # in-app only, Excel export untouched)
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA
@@ -163,9 +168,11 @@ app/
                                                # number, only reachable once the
                                                # proposal is approved
     _comparative_summary_grid.html              # shared partial: view toggle (item/
-                                                 # package) + grid + Download
-                                                 # Comparative Statement link -
-                                                 # included by quote_entry.html and
+                                                 # package) + grid (tie-aware
+                                                 # highlighting) + Download
+                                                 # Comparative Statement link + package
+                                                 # Top-N/tie flagging - included by
+                                                 # quote_entry.html and
                                                  # comparative_summary.html
     _phase_nav.html                               # shared Prev/Next partial across
                                                    # the 5 lifecycle pages (Items ->
@@ -183,6 +190,7 @@ tests/
   test_proposal_snapshot.py
   test_item_lock.py
   test_phase_landing.py
+  test_comparative_summary.py
   test_tender_status.py
   test_lpr_history.py
   test_tender_templates.py

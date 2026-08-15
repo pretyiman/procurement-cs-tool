@@ -218,6 +218,25 @@ every firm in the approved snapshot to have one of these -
 
 - **Lowest rate / lowest firm per item** = min(rate) across quotes where
   rate is not null. If no supplier quoted (all NQ), item has no lowest.
+  When multiple suppliers quote the exact same minimum, every one of them
+  is recorded (`ItemResult.tied_supplier_ids`, `is_tied` when len > 1) -
+  the actual pick (`lowest_supplier_id`) is the lowest supplier_id among
+  the tied ones, a disclosed/deterministic rule, not whichever quote row
+  the database happened to return first. Surfaced as a "TIE" badge in the
+  Comparative Summary UI rather than resolved silently.
+- **Lowest-count leaderboard** (`compute_lowest_count_leaderboard` in
+  `cs_engine.py`): how many items each supplier is the resolved lowest
+  bidder on, and how much value that represents - one of the "max stats"
+  tools on the Comparative Summary page, alongside a supplier-comparison
+  panel (client-side JS, driven by a JSON payload of the full rate
+  matrix - no server round-trip) with search/sort/common-items-only/
+  hide-NQ filters and a live price-gap column. Excel export is
+  deliberately untouched by any of this - these are in-app-only views.
+- **Package total tie** - same idea, for the "lowest total from one
+  supplier" ranking (`compute_package_totals`): the sort key includes
+  `supplier_id` as a final tie-break so ordering is deterministic (not
+  Python set iteration order), and the route separately flags when 2+
+  fully-quoted suppliers share the exact top contract_value.
 - **Item total value** = qty * rate of the *awarded* supplier (awarded =
   override if set, else computed-lowest).
 - **Inc/Dec %** = (awarded_rate - lpr) / lpr * 100, only if lpr present.

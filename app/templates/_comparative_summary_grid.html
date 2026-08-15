@@ -18,7 +18,22 @@
 <div class="card" style="overflow-x:auto">
   {% if view == 'package' %}
     <p class="muted" style="margin-top:0">Ranks each supplier's total across every item on this RFQ - only a supplier who quoted everything can win the whole package. This doesn't award anything; it's a comparison to help decide.</p>
+    {% if tied_package_supplier_ids is defined and tied_package_supplier_ids|length > 1 %}
+    <div class="card notice-exists" style="margin-bottom:1rem">
+      <strong>Tied lowest package:</strong> {{ tied_package_supplier_ids|length }} suppliers quote the exact same total - review before picking one.
+    </div>
+    {% endif %}
     {% if items and package_totals %}
+    {% set total_count = package_totals_total_count if package_totals_total_count is defined else package_totals|length %}
+    {% if total_count > 5 %}
+    <p class="muted" style="margin-top:0">
+      Showing {{ package_totals|length }} of {{ total_count }} -
+      {% for n in [5, 10, 25] %}
+        {% if n < total_count %}<a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit={{ n }}">Top {{ n }}</a> &middot; {% endif %}
+      {% endfor %}
+      <a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit=all">All {{ total_count }}</a>
+    </p>
+    {% endif %}
     <table>
       <thead>
         <tr>
@@ -29,7 +44,11 @@
       <tbody>
         {% for p in package_totals %}
         <tr class="{{ 'row-lowest' if loop.first and p.fully_quoted else '' }}">
-          <td>{{ p.supplier_name }}{% if loop.first and p.fully_quoted %} <span class="badge">LOWEST PACKAGE</span>{% endif %}</td>
+          <td>
+            {{ p.supplier_name }}
+            {% if loop.first and p.fully_quoted %} <span class="badge">LOWEST PACKAGE</span>{% endif %}
+            {% if tied_package_supplier_ids is defined and tied_package_supplier_ids|length > 1 and p.supplier_id in tied_package_supplier_ids %} <span class="badge badge-tie">TIE</span>{% endif %}
+          </td>
           <td class="num">{{ p.quoted_item_count }}/{{ p.total_item_count }}</td>
           <td class="num">{{ '%.2f'|format(p.store_value) }}</td>
           <td class="num">{{ '%.2f'|format(p.tax_amount) }}</td>
@@ -59,11 +78,15 @@
         <tr>
           <td>{{ item.ser }}</td>
           <td>{{ item.item_master.part_no }}</td>
-          <td>{{ item.item_master.description }}</td>
+          <td>
+            {{ item.item_master.description }}
+            {% if tied_by_item_id is defined and (tied_by_item_id.get(item.id, [])|length) > 1 %}<span class="badge badge-tie">TIE</span>{% endif %}
+          </td>
           <td class="num">{{ item.qty }}</td>
           {% for s in quoting_suppliers %}
           {% set rate = full_rate_matrix.get((item.id, s.id)) %}
-          <td class="num {{ 'lowest-cell' if lowest_by_item_id.get(item.id) == s.id else '' }}">
+          {% set is_lowest = (tied_by_item_id.get(item.id, []) if tied_by_item_id is defined else [lowest_by_item_id.get(item.id)]) %}
+          <td class="num {{ 'lowest-cell' if s.id in is_lowest else '' }}">
             {{ '%.2f'|format(rate) if rate is not none else '-' }}
           </td>
           {% endfor %}

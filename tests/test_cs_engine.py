@@ -169,6 +169,90 @@ def test_partial_quoter_is_ranked_last_and_flagged_not_fully_quoted():
         assert [p.supplier_name for p in cs.package_totals] == ["Full Quoter", "Partial Quoter"]
 
 
+def test_tied_lowest_rate_is_flagged_and_deterministic():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Supplier A": 100, "Supplier B": 100, "Supplier C": 150},
+                2: {"Supplier A": 50, "Supplier B": 60},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+
+        tied_result = next(r for r in cs.item_results if r.item.ser == 1)
+        a_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier A")
+        b_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier B")
+        assert tied_result.is_tied is True
+        assert set(tied_result.tied_supplier_ids) == {a_id, b_id}
+        # Deterministic pick: lowest supplier_id among the tied ones, not
+        # whichever quote row happened to come back first from the DB.
+        assert tied_result.lowest_supplier_id == min(a_id, b_id)
+
+        untied_result = next(r for r in cs.item_results if r.item.ser == 2)
+        assert untied_result.is_tied is False
+        assert untied_result.tied_supplier_ids == [untied_result.lowest_supplier_id]
+
+
+def test_lowest_count_leaderboard_partitions_items_cleanly():
+    """Counts must sum to the total awarded item count - a tie is flagged
+    at the row level (is_tied) but only credited to the one deterministic
+    winner here, so the leaderboard numbers stay additive/comparable."""
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Supplier A": 10, "Supplier B": 20},
+                2: {"Supplier A": 10, "Supplier B": 20},
+                3: {"Supplier A": 10, "Supplier B": 5},
+                4: {"Supplier A": 100, "Supplier B": 100},  # tie
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+
+        board_by_name = {s.supplier_name: s for s in cs.lowest_count_leaderboard}
+        assert board_by_name["Supplier A"].item_count == 3  # items 1, 2, and the tie (lower id)
+        assert board_by_name["Supplier B"].item_count == 1  # item 3
+        assert sum(s.item_count for s in cs.lowest_count_leaderboard) == 4
+        # Ranked by count descending.
+        assert [s.supplier_name for s in cs.lowest_count_leaderboard] == ["Supplier A", "Supplier B"]
+
+
+def test_total_quotes_count_matches_actual_quote_rows():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Supplier A": 10, "Supplier B": 20},
+                2: {"Supplier A": 10, "Supplier B": None},  # NQ - shouldn't count
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        assert cs.total_quotes_count == 3
+
+
+def test_package_ranking_is_deterministic_on_a_tie():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"Supplier A": 100, "Supplier B": 100},
+                2: {"Supplier A": 50, "Supplier B": 50},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        a_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier A")
+        b_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Supplier B")
+
+        assert cs.package_totals[0].contract_value == cs.package_totals[1].contract_value
+        # Deterministic tie-break by supplier_id, not Python set iteration order.
+        assert [p.supplier_id for p in cs.package_totals] == sorted([a_id, b_id])
+
+
 def test_package_total_includes_tax():
     with _fresh_session() as session:
         tender = _make_tender_with_items_and_quotes(

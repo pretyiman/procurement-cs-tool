@@ -7,7 +7,7 @@ layers on top of this) - this module always uses the computed-lowest
 bidder, matching the existing CS.xlsx behaviour.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from sqlmodel import Session, select
@@ -22,6 +22,11 @@ class ItemResult:
     lowest_rate: Optional[float]
     total_value: float
     inc_dec_pct: Optional[float]
+    tied_supplier_ids: List[int] = field(default_factory=list)  # every supplier at the minimum rate; len>1 = a genuine tie
+
+    @property
+    def is_tied(self) -> bool:
+        return len(self.tied_supplier_ids) > 1
 
 
 @dataclass
@@ -61,6 +66,22 @@ class PackageTotal:
 
 
 @dataclass
+class SupplierLowestCount:
+    """How many items a supplier is the (deterministic) lowest bidder on,
+    and how much of the tender's value that represents - for the "who's
+    actually cheapest, and how often" leaderboard. Partitioned cleanly:
+    each item counts toward exactly one supplier (its resolved
+    lowest_supplier_id), so counts sum to the total awarded item count
+    even when some of those items were genuine price ties - see
+    ItemResult.is_tied for that detail at the row level."""
+
+    supplier_id: int
+    supplier_name: str
+    item_count: int
+    store_value: float
+
+
+@dataclass
 class ComparativeStatement:
     tender: Tender
     item_results: List[ItemResult]
@@ -68,18 +89,29 @@ class ComparativeStatement:
     grand_total: GrandTotal
     suppliers_by_id: Dict[int, Supplier]
     package_totals: List[PackageTotal]
+    total_quotes_count: int
+    lowest_count_leaderboard: List[SupplierLowestCount]
 
 
 def compute_item_result(item: Item, quotes: List[Quote]) -> ItemResult:
     quoted = [(q.supplier_id, q.rate) for q in quotes if q.rate is not None]
 
     if quoted:
-        lowest_supplier_id, lowest_rate = min(quoted, key=lambda pair: pair[1])
+        lowest_rate = min(rate for _, rate in quoted)
+        # Every supplier at the minimum rate, not just whichever quote row
+        # happened to come back first from the database - a real tie gets
+        # flagged (ItemResult.is_tied), not silently hidden behind
+        # incidental query order. The deterministic pick among them
+        # (lowest supplier_id) is a disclosed, stable tie-break - not an
+        # accident of insertion order - used as the actual award default.
+        tied_supplier_ids = sorted(sid for sid, rate in quoted if rate == lowest_rate)
+        lowest_supplier_id = tied_supplier_ids[0]
         total_value = item.qty * lowest_rate
     else:
         lowest_supplier_id = None
         lowest_rate = None
         total_value = 0.0
+        tied_supplier_ids = []
 
     inc_dec_pct = None
     if item.lpr is not None and lowest_rate is not None and item.lpr != 0:
@@ -91,6 +123,7 @@ def compute_item_result(item: Item, quotes: List[Quote]) -> ItemResult:
         lowest_rate=lowest_rate,
         total_value=total_value,
         inc_dec_pct=inc_dec_pct,
+        tied_supplier_ids=tied_supplier_ids,
     )
 
 
@@ -176,8 +209,38 @@ def compute_package_totals(
             )
         )
 
-    results.sort(key=lambda r: (not r.fully_quoted, r.contract_value))
+    # Tie-break on supplier_id too - without it, a genuine tie in
+    # contract_value would fall back to Python set iteration order (how
+    # supplier_ids above was built), which depends on hash values, not any
+    # business rule. This makes the order fully deterministic; a real tie
+    # at the top is still surfaced separately (see the route) rather than
+    # silently resolved by this ordering.
+    results.sort(key=lambda r: (not r.fully_quoted, r.contract_value, r.supplier_id))
     return results
+
+
+def compute_lowest_count_leaderboard(
+    item_results: List[ItemResult], suppliers_by_id: Dict[int, Supplier]
+) -> List[SupplierLowestCount]:
+    counts: Dict[int, int] = {}
+    values: Dict[int, float] = {}
+    for r in item_results:
+        if r.lowest_supplier_id is None:
+            continue
+        counts[r.lowest_supplier_id] = counts.get(r.lowest_supplier_id, 0) + 1
+        values[r.lowest_supplier_id] = values.get(r.lowest_supplier_id, 0.0) + r.total_value
+
+    leaderboard = [
+        SupplierLowestCount(
+            supplier_id=sid,
+            supplier_name=suppliers_by_id[sid].name,
+            item_count=count,
+            store_value=values.get(sid, 0.0),
+        )
+        for sid, count in counts.items()
+    ]
+    leaderboard.sort(key=lambda s: (-s.item_count, s.supplier_name))
+    return leaderboard
 
 
 def build_comparative_statement(session: Session, tender_id: int) -> ComparativeStatement:
@@ -213,6 +276,7 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
     firm_summaries = compute_firm_summaries(item_results, suppliers_by_id, tender.tax_percent)
     grand_total = compute_grand_total(firm_summaries)
     package_totals = compute_package_totals(items, quotes_by_item, suppliers_by_id, tender.tax_percent)
+    lowest_count_leaderboard = compute_lowest_count_leaderboard(item_results, suppliers_by_id)
 
     return ComparativeStatement(
         tender=tender,
@@ -221,4 +285,6 @@ def build_comparative_statement(session: Session, tender_id: int) -> Comparative
         grand_total=grand_total,
         suppliers_by_id=suppliers_by_id,
         package_totals=package_totals,
+        total_quotes_count=sum(1 for q in quotes if q.rate is not None),
+        lowest_count_leaderboard=lowest_count_leaderboard,
     )
