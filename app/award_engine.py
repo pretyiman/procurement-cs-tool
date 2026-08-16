@@ -2,10 +2,11 @@
 
 Default award = the computed-lowest bidder from cs_engine. An officer may
 override an item's award to a different (quoting) supplier via
-Item.awarded_supplier_id, which requires Item.award_reason when it differs
-from the lowest bidder (see validate_override, used at write time by the
-UI). Purchase Proposal simply regroups awarded items by firm - it must
-never recompute prices independently of cs_engine/award resolution.
+Item.awarded_supplier_id (see validate_override, used at write time by the
+UI - it only checks the chosen supplier actually quoted the item, no
+reason is required to pick a non-lowest one). Purchase Proposal simply
+regroups awarded items by firm - it must never recompute prices
+independently of cs_engine/award resolution.
 """
 
 from dataclasses import dataclass
@@ -87,7 +88,7 @@ def resolve_award(item: Item, cs_item_result: ItemResult, rate_map: Dict[int, fl
 def validate_override(item: Item, cs_item_result: ItemResult, rate_map: Dict[int, float]) -> None:
     """Strict validation for write time (setting/clearing an override).
     Raises ValueError with a user-facing message if the proposed
-    item.awarded_supplier_id / item.award_reason are not acceptable."""
+    item.awarded_supplier_id is not acceptable."""
     if item.awarded_supplier_id is None:
         return  # clearing an override (back to default-lowest) is always fine
 
@@ -95,12 +96,6 @@ def validate_override(item: Item, cs_item_result: ItemResult, rate_map: Dict[int
         raise ValueError(
             "Cannot award this item to that supplier: they did not quote it (NQ)."
         )
-
-    if item.awarded_supplier_id != cs_item_result.lowest_supplier_id:
-        if not item.award_reason or not item.award_reason.strip():
-            raise ValueError(
-                "A reason is required when awarding to a firm other than the lowest quoted rate."
-            )
 
 
 def _quotes_by_item(session: Session, item_ids: List[int]) -> Dict[int, Dict[int, float]]:

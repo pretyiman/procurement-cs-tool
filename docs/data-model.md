@@ -45,7 +45,7 @@ alone can't be the dedup key - see `get_or_create_item_master` in
 | qty | decimal | |
 | lpr | decimal, nullable | Last Purchase Rate, for Inc/Dec% |
 | awarded_supplier_id | FK, nullable | overrides computed-lowest when set |
-| award_reason | text, nullable | required if awarded_supplier != lowest |
+| award_reason | text, nullable | optional free-text note; no longer collected via the UI (see Derived section) but the field/display remain for any legacy data |
 
 ### Supplier
 | field | type | notes |
@@ -266,8 +266,11 @@ every firm in the approved snapshot to have one of these -
   (opening one hides any other), with a Close button per panel.
 - **Comparative Summary page tabs**: below the stats bar, the page is
   split into three tabs - "Sourcing Options" (bundle cards, their detail
-  panels, and the collapsed leaderboard), "Award Decisions" (the
-  click-to-award pills table), and "All Quotes" (the shared
+  panels, and the collapsed leaderboard), "Price Comparison" (the
+  click-to-award pills table; internal id `tab-award` is unchanged from
+  when the tab was labeled "Award Decisions" - only the visible label and
+  `<h2>` changed, not the hash/id, to avoid touching the redirect/anchor
+  wiring described below), and "All Quotes" (the shared
   `_comparative_summary_grid.html` item/package grid + Download link).
   Same server-rendered/vanilla-JS approach as the detail panels
   (`showTab()`), except tab state also survives the page's several
@@ -278,6 +281,17 @@ every firm in the approved snapshot to have one of these -
   or its POST route's 303 redirect in `main.py`), since each control only
   ever lives inside one specific tab, so no dynamic "current tab" state
   needs to be threaded through the server.
+- **Awarding to a non-lowest bidder needs no reason.** Earlier,
+  `award_engine.validate_override()` raised a ValueError unless
+  `Item.award_reason` was set whenever the chosen supplier wasn't the
+  computed-lowest one, and the Comparative Summary award form had a text
+  box for it. Both were removed - the officer can click any quoting
+  supplier's price pill and it's awarded immediately, no justification
+  required or possible via the UI. `Item.award_reason` /
+  `ProposalSnapshotItem.override_reason` remain in the schema (still
+  displayed read-only next to an override, when present) purely so any
+  reason text entered before this change keeps displaying correctly - no
+  new reason text can be entered going forward.
 - **Package total tie** - same idea, for the "lowest total from one
   supplier" ranking (`compute_package_totals`): the sort key includes
   `supplier_id` as a final tie-break so ordering is deterministic (not

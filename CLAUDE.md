@@ -164,8 +164,10 @@ app/
                                            # in a shared #analysis-detail-area, incl.
                                            # items a bundle doesn't cover, above the
                                            # collapsed leaderboard, accordion-style),
-                                           # "Award Decisions" (click-to-award pills,
-                                           # locks read-only once the proposal is
+                                           # "Price Comparison" (click-to-award pills,
+                                           # no reason needed to pick a non-lowest
+                                           # bidder - see docs/data-model.md; locks
+                                           # read-only once the proposal is
                                            # approved), and "All Quotes" (the same
                                            # _comparative_summary_grid.html partial
                                            # as Quote Entry, so both stay in sync

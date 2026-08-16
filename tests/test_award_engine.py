@@ -101,7 +101,7 @@ def test_override_moves_item_between_firms_and_updates_subtotals():
         )
 
 
-def test_override_without_reason_is_rejected_when_not_lowest():
+def test_override_without_reason_is_allowed_when_not_lowest():
     with _fresh_session() as session:
         tender = _load_fixture(session)
         item3 = session.exec(select(Item).where(Item.tender_id == tender.id, Item.ser == 3)).one()
@@ -118,8 +118,7 @@ def test_override_without_reason_is_rejected_when_not_lowest():
         item3.awarded_supplier_id = sns.id
         item3.award_reason = None  # no reason given, and SNS is not the lowest bidder
 
-        with pytest.raises(ValueError, match="reason is required"):
-            validate_override(item3, result3, rate_map)
+        validate_override(item3, result3, rate_map)  # must not raise - no reason required
 
 
 def test_override_to_supplier_who_did_not_quote_is_rejected():

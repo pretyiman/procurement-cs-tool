@@ -4,10 +4,9 @@
 <h1>{{ tender.inquiry_no }} &mdash; Comparative Summary</h1>
 <p class="muted">
   Click a price to award that item to that firm. The lowest quoted price is
-  highlighted in green. Awarding anything else requires a reason - type it
-  before clicking. Download the Comparative Statement below once decisions
-  are final - it's the printed/signed record needed before drafting the
-  Purchase Proposal.
+  highlighted in green. Download the Comparative Statement below once
+  decisions are final - it's the printed/signed record needed before
+  drafting the Purchase Proposal.
 </p>
 <p><a href="/tenders/{{ tender.id }}">&larr; Back to items &amp; quotes</a> &middot; <a href="/tenders/{{ tender.id }}/proposal">Purchase Proposal &rarr;</a></p>
 {% set current = "comparative_summary" %}
@@ -29,7 +28,7 @@
 
 <div class="tab-nav">
   <button type="button" class="tab-nav-btn" data-tab="tab-sourcing" onclick="showTab('tab-sourcing')">Sourcing Options</button>
-  <button type="button" class="tab-nav-btn" data-tab="tab-award" onclick="showTab('tab-award')">Award Decisions</button>
+  <button type="button" class="tab-nav-btn" data-tab="tab-award" onclick="showTab('tab-award')">Price Comparison</button>
   <button type="button" class="tab-nav-btn" data-tab="tab-quotes" onclick="showTab('tab-quotes')">All Quotes</button>
 </div>
 
@@ -187,7 +186,7 @@
 
 <div id="tab-award" class="tab-panel" style="display:none">
 
-<h2>Award Decisions</h2>
+<h2>Price Comparison</h2>
 {% if locked %}
 <div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
 {% endif %}
@@ -229,10 +228,6 @@
           <span class="nq">no firm quoted this item</span>
           {% elif row.options %}
           <form method="post" action="/tenders/{{ tender.id }}/items/{{ row.item.id }}/award">
-            <input type="text" name="award_reason" placeholder="Reason (required if not lowest)"
-                   value="{{ row.override_reason or '' }}"
-                   style="width:220px; display:inline-block; margin-bottom:0.4rem;">
-            <br>
             {% for sid, name, rate in row.options %}
             <button type="submit" name="awarded_supplier_id" value="{{ sid }}"
                     class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
