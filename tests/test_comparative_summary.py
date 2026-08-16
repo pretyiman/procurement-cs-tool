@@ -200,3 +200,24 @@ def test_package_top_n_links_only_appear_when_more_than_five_suppliers():
         assert "Showing 5 of 8" in resp.text
     finally:
         app.dependency_overrides.clear()
+
+
+def test_best_value_badge_goes_only_on_the_smallest_tied_bundle():
+    """A supplier that never actually undercuts an already-chosen bundle
+    can tie its contract_value without improving it - only the smaller
+    (cheaper-to-manage) bundle should be flagged BEST VALUE, not both."""
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Tied Best Value Test", ["A-1", "A-2"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 10})
+        _quote(client, tender_id, "Firm B", {item_ids[1]: 20})
+        # Firm C quotes both, but never cheaper than A or B - adding it to
+        # the 2-supplier bundle can't reduce cost below A+B's total.
+        _quote(client, tender_id, "Firm C", {item_ids[0]: 50, item_ids[1]: 50})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?bundle_sizes=1,2,3")
+        assert resp.status_code == 200
+        assert resp.text.count("BEST VALUE") == 1
+        assert "Same value, 2 is enough" in resp.text
+    finally:
+        app.dependency_overrides.clear()

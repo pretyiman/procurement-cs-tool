@@ -42,10 +42,19 @@
 {% if bundles %}
 {% set fully_covered_values = bundles|selectattr('fully_covered')|map(attribute='contract_value')|list %}
 {% set best_value = fully_covered_values|min if fully_covered_values else None %}
+{# bundles is sorted ascending by size, so the first fully-covered bundle
+   at the minimum value is the smallest such bundle - if a bigger size
+   ties on price (adding a supplier that doesn't actually help), only the
+   smaller one is genuinely "best" (same cost, fewer contracts). #}
+{% set best_bundle = bundles|selectattr('fully_covered')|selectattr('contract_value', 'equalto', best_value)|first if best_value is not none else None %}
 <div class="bundle-row">
   {% for b in bundles %}
-  <div class="bundle-card {{ 'bundle-card-best' if best_value is not none and b.fully_covered and b.contract_value == best_value else '' }}">
-    {% if best_value is not none and b.fully_covered and b.contract_value == best_value %}<span class="badge">BEST VALUE</span>{% endif %}
+  <div class="bundle-card {{ 'bundle-card-best' if best_bundle and b.bundle_size == best_bundle.bundle_size else '' }}">
+    {% if best_bundle and b.bundle_size == best_bundle.bundle_size %}
+    <span class="badge">BEST VALUE</span>
+    {% elif best_bundle and b.fully_covered and b.contract_value == best_bundle.contract_value %}
+    <span class="badge" style="background:var(--muted)">Same value, {{ best_bundle.bundle_size }} is enough</span>
+    {% endif %}
     <div class="bundle-card-value">{{ '%.2f'|format(b.contract_value) }}</div>
     <div class="bundle-card-size">{{ b.bundle_size }} Supplier{{ 's' if b.bundle_size != 1 else '' }}</div>
     <p class="muted" style="margin:0.3rem 0 0;font-size:0.82rem">
