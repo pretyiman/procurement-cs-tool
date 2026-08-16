@@ -383,6 +383,37 @@ every firm in the approved snapshot to have one of these -
   LPR entry every time - see `get_last_purchase_rate` in
   `app/lpr_history.py`.
 
+## First-launch demo seed (`app/seed_demo_data.py`)
+
+Called from `main.py`'s startup hook, right after `create_db_and_tables()`.
+`seed_demo_data_if_empty()` checks for any existing `Tender` row first and
+returns immediately if it finds one - it only ever does anything the very
+first time the app runs against a brand-new, completely empty database
+(e.g. a freshly installed `.exe` on a machine that's never run it before).
+It exists so a packaged build is demo/presentation-ready the moment it's
+installed on a new machine - no manual data entry, no file copying, no
+separate seeding step - while never touching (or duplicating into) a
+database that's already in real use.
+
+Seeds 2 departments, 4 suppliers, 5 catalog items (all generic/fictional
+names, unrelated to any real data this project has handled), and 5
+tenders (`DEMO/2026/001`-`005`) spanning every lifecycle stage - draft
+(Items page), quotes entered (Comparative Summary), proposal generated
+(Purchase Proposal), proposal approved (Contract Award, ready to
+issue/download), and fully awarded - plus one `CustomFieldGroup` (tied to
+the "Supply Chain Management" department) populated with example values
+for all 15 `custom_fields.SUGGESTED_PP_CA_FIELDS` tags, so downloading a
+Contract Award/Purchase Proposal for the proposal-approved demo tender
+immediately shows filled-in department details instead of generic
+template defaults.
+
+Verified against the actual packaged build, not just simulated: built
+`ProcurementCSTool.exe` via PyInstaller, launched it with `%LOCALAPPDATA%`
+pointed at an empty temp directory (mirroring a real fresh install),
+confirmed the demo tenders and custom field group appeared automatically,
+and downloaded a real Contract Award from it confirming the example
+custom field value rendered correctly.
+
 ## Regression fixture: CS.xlsx (dummy data, repo root)
 
 This file is the ground truth for the calculation engine (Phase 2). It has

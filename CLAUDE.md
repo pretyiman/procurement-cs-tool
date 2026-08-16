@@ -64,6 +64,16 @@ app/
                            # Department, TenderTemplate/TenderTemplateItem,
                            # BusinessRules, DocumentLabels, CustomField
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
+  seed_demo_data.py         # seed_demo_data_if_empty(), called from main.py's
+                             # startup hook right after create_db_and_tables() -
+                             # a no-op unless the DB has zero Tender rows, so it
+                             # never touches real data, only a brand-new install.
+                             # Builds 5 tenders spanning every lifecycle stage
+                             # plus a Custom Field Group with example values for
+                             # all 15 PP/CA "department blank" tags, so a fresh
+                             # .exe on a new machine is demo-ready on first
+                             # launch - no manual data entry or file copying.
+                             # Item/supplier names are generic/fictional
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
   cs_engine.py                # comparative-statement calculation (pure)
   award_engine.py               # lowest + manual override logic, live Purchase
@@ -258,6 +268,18 @@ The `.spec` (not the raw CLI flags) is the source of truth for the build -
 edit it directly if bundled data files or hidden imports need to change,
 rather than re-running `pyinstaller run.py ...` from scratch. `dist/` and
 `build/` are gitignored (regenerate, don't commit).
+
+Copying `dist\ProcurementCSTool.exe` to another machine and running it is
+the whole install - no other files need to travel with it, and no
+manual setup step is needed on the new machine. On first launch there
+(an empty `%LOCALAPPDATA%\ProcurementCSTool\`), the app auto-creates its
+database AND auto-seeds it with demo tenders/custom fields (see
+`app/seed_demo_data.py` / docs/data-model.md) - it only skips seeding if
+that machine already has real data in it. Verified end-to-end against
+the actual built exe (not just simulated): launched it with
+`%LOCALAPPDATA%` redirected to an empty temp dir, confirmed demo data
+appeared and a downloaded Contract Award rendered its example custom
+field values correctly.
 
 `.doc`-upload support (Settings > Document Templates, `template_manager.
 convert_doc_to_docx()`) added a `pywin32` dependency (Windows-only, see

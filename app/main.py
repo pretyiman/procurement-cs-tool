@@ -29,7 +29,7 @@ from .custom_fields import (
     update_custom_field,
     update_group,
 )
-from .db import create_db_and_tables, get_session
+from .db import create_db_and_tables, engine, get_session
 from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
 from .lpr_history import get_last_purchase_rate
@@ -42,6 +42,7 @@ from .proposal_snapshot import (
     save_proposal_snapshot,
     upsert_contract_award,
 )
+from .seed_demo_data import seed_demo_data_if_empty
 from .template_manager import (
     TEMPLATE_NAMES,
     convert_doc_to_docx,
@@ -86,6 +87,8 @@ templates = Jinja2Templates(directory=str(resource_path("templates")))
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
+    with Session(engine) as session:
+        seed_demo_data_if_empty(session)
 
 
 def _json_for_script(data) -> str:
