@@ -226,12 +226,25 @@ every firm in the approved snapshot to have one of these -
   Comparative Summary UI rather than resolved silently.
 - **Lowest-count leaderboard** (`compute_lowest_count_leaderboard` in
   `cs_engine.py`): how many items each supplier is the resolved lowest
-  bidder on, and how much value that represents - one of the "max stats"
-  tools on the Comparative Summary page, alongside a supplier-comparison
-  panel (client-side JS, driven by a JSON payload of the full rate
-  matrix - no server round-trip) with search/sort/common-items-only/
-  hide-NQ filters and a live price-gap column. Excel export is
-  deliberately untouched by any of this - these are in-app-only views.
+  bidder on, and how much value that represents - shown as secondary
+  ("Per-item breakdown", collapsed by default) detail on the Comparative
+  Summary page. Excel export is deliberately untouched by any of this -
+  it's an in-app-only view.
+- **Sourcing Options / supplier bundles** (`compute_best_bundle`,
+  `compute_bundle_lineup` in `cs_engine.py`) - the *primary* content of
+  the Comparative Summary page's analysis panel: for an adjustable set of
+  bundle sizes (default 1 through min(5, quoting supplier count), plus
+  whatever else the admin types in), the cheapest combination of exactly
+  that many suppliers that covers the most items, cost broken second
+  among ties on coverage. Partial bidders are eligible for bundle
+  membership, not just suppliers who individually cover everything (that
+  was the whole point - "these 3 suppliers together cover everything for
+  Rs X" vs. paying more for one supplier who covers it alone). Brute-force
+  search over `itertools.combinations`, capped at
+  `MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS` (200,000) past which it falls back
+  to a greedy (not-necessarily-optimal) approximation - flagged
+  `approximate=True` when that happens. The cheapest fully-covering bundle
+  across the shown sizes is marked "BEST VALUE" in the UI.
 - **Package total tie** - same idea, for the "lowest total from one
   supplier" ranking (`compute_package_totals`): the sort key includes
   `supplier_id` as a final tie-break so ordering is deterministic (not

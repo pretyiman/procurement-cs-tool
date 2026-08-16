@@ -90,22 +90,59 @@
 {% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/comparative-summary" %}
 {% include "_comparative_summary_grid.html" %}
 
-<h2>Supplier Analysis</h2>
+<h2>Sourcing Options</h2>
+<p class="muted">
+  The cheapest way to cover this RFQ at a few different supplier counts - combinations of partial bidders are
+  considered too, not just a single supplier who happens to cover everything alone. More suppliers can mean a
+  lower price, at the cost of managing more contracts.
+</p>
+
 <div class="card">
-  <h2 style="margin-top:0">Who's cheapest, and how often</h2>
-  <p class="muted" style="margin-top:0">
-    Each item counts toward exactly one supplier (its lowest bidder) - a tied item still counts once, toward the
-    lower supplier ID, but is flagged <span class="badge badge-tie">TIE</span> above. Check suppliers below to
-    compare them side by side in the table underneath.
-  </p>
+  <form method="get" action="/tenders/{{ tender.id }}/comparative-summary" class="row-form" style="max-width:420px">
+    <input type="hidden" name="view" value="{{ view }}">
+    <div class="field">
+      <label for="bundle_sizes">Bundle sizes to compare (comma-separated)</label>
+      <input type="text" id="bundle_sizes" name="bundle_sizes" value="{{ bundle_sizes_csv }}">
+    </div>
+    <button type="submit">Update</button>
+  </form>
+</div>
+
+{% if bundles %}
+{% set fully_covered_values = bundles|selectattr('fully_covered')|map(attribute='contract_value')|list %}
+{% set best_value = fully_covered_values|min if fully_covered_values else None %}
+<div class="bundle-row">
+  {% for b in bundles %}
+  <div class="bundle-card {{ 'bundle-card-best' if best_value is not none and b.fully_covered and b.contract_value == best_value else '' }}">
+    {% if best_value is not none and b.fully_covered and b.contract_value == best_value %}<span class="badge">BEST VALUE</span>{% endif %}
+    <div class="bundle-card-value">{{ '%.2f'|format(b.contract_value) }}</div>
+    <div class="bundle-card-size">{{ b.bundle_size }} Supplier{{ 's' if b.bundle_size != 1 else '' }}</div>
+    <p class="muted" style="margin:0.3rem 0 0;font-size:0.82rem">
+      {% if b.fully_covered %}
+        Covers all {{ b.coverable_item_count }} item{{ 's' if b.coverable_item_count != 1 else '' }}
+      {% else %}
+        Covers {{ b.covered_item_count }} of {{ b.coverable_item_count }} items
+        ({{ (100 * b.covered_item_count / b.coverable_item_count)|round(0, 'floor')|int if b.coverable_item_count else 0 }}%)
+      {% endif %}
+      {% if b.approximate %} &middot; approximate{% endif %}
+    </p>
+    <p class="muted" style="margin:0.6rem 0 0;font-size:0.8rem">{{ b.supplier_names|join(', ') }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">No quotes yet, or none of the requested bundle sizes are achievable with the suppliers who've quoted so far.</p>
+{% endif %}
+
+<details style="margin-bottom:1.5rem">
+  <summary class="muted" style="cursor:pointer">Per-item breakdown: who's cheapest, and how often</summary>
   {% if lowest_count_leaderboard %}
   {% set max_count = lowest_count_leaderboard[0].item_count %}
-  <table>
-    <thead><tr><th style="width:2rem"></th><th>Supplier</th><th class="num">Items lowest</th><th class="num">Value at stake</th></tr></thead>
+  <table style="margin-top:0.75rem">
+    <thead><tr><th>Supplier</th><th class="num">Items lowest</th><th class="num">Value at stake</th></tr></thead>
     <tbody>
       {% for s in lowest_count_leaderboard %}
       <tr>
-        <td><input type="checkbox" class="supplier-filter-checkbox" data-supplier-id="{{ s.supplier_id }}" checked></td>
         <td>
           {{ s.supplier_name }}
           <span class="leaderboard-bar" style="width:{{ (100 * s.item_count / max_count)|round(0, 'floor')|int }}px"></span>
@@ -116,158 +153,12 @@
       {% endfor %}
     </tbody>
   </table>
-  <p class="muted" style="margin-bottom:0">
-    <a href="#" id="select-all-suppliers">Select all</a> &middot; <a href="#" id="select-none-suppliers">Select none</a>
+  <p class="muted" style="margin:0.5rem 0 0">
+    Each item counts toward exactly one supplier (its lowest bidder) - a tied item still counts once, toward the
+    lower supplier ID, but is flagged <span class="badge badge-tie">TIE</span> above.
   </p>
   {% else %}
   <p class="empty">No quotes yet.</p>
   {% endif %}
-</div>
-
-{% if lowest_count_leaderboard %}
-<div class="card" style="overflow-x:auto">
-  <h2 style="margin-top:0">Compare selected suppliers</h2>
-  <div class="filter-toolbar">
-    <div class="field" style="max-width:220px">
-      <label for="item-search-input-analysis">Search items</label>
-      <input type="text" id="item-search-input-analysis" placeholder="Part no. or description...">
-    </div>
-    <label><input type="checkbox" id="common-items-only"> Common items only (all checked suppliers quoted)</label>
-    <label><input type="checkbox" id="hide-nq-items"> Hide unresolved items</label>
-    <div class="field" style="max-width:220px">
-      <label for="sort-select">Sort by</label>
-      <select id="sort-select">
-        <option value="ser">Ser (default)</option>
-        <option value="gap-desc">Price gap - high to low</option>
-        <option value="gap-asc">Price gap - low to high</option>
-        <option value="value-desc">Item value - high to low</option>
-      </select>
-    </div>
-  </div>
-  <table id="comparison-table">
-    <thead id="comparison-table-head"></thead>
-    <tbody id="comparison-table-body"></tbody>
-  </table>
-  <p class="empty" id="comparison-empty" style="display:none">No items match the current filters.</p>
-</div>
-
-<script id="cs-analysis-data" type="application/json">{{ analysis_json | safe }}</script>
-<script>
-  (function () {
-    var data = JSON.parse(document.getElementById('cs-analysis-data').textContent);
-    var itemsById = {};
-    data.items.forEach(function (it) { itemsById[it.id] = it; });
-
-    function selectedSupplierIds() {
-      return Array.prototype.slice.call(document.querySelectorAll('.supplier-filter-checkbox:checked'))
-        .map(function (cb) { return parseInt(cb.dataset.supplierId, 10); });
-    }
-
-    function rateFor(itemId, supplierId) {
-      var v = data.rates[itemId + '_' + supplierId];
-      return (v === undefined) ? null : v;
-    }
-
-    function render() {
-      var selected = data.suppliers.filter(function (s) { return selectedSupplierIds().indexOf(s.id) !== -1; });
-      var searchTerm = document.getElementById('item-search-input-analysis').value.trim().toLowerCase();
-      var commonOnly = document.getElementById('common-items-only').checked;
-      var hideNq = document.getElementById('hide-nq-items').checked;
-      var sortBy = document.getElementById('sort-select').value;
-
-      var thead = document.getElementById('comparison-table-head');
-      var tbody = document.getElementById('comparison-table-body');
-      var emptyMsg = document.getElementById('comparison-empty');
-
-      var headHtml = '<tr><th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th>';
-      selected.forEach(function (s) { headHtml += '<th>' + s.name + '</th>'; });
-      if (selected.length > 1) headHtml += '<th class="num">Gap</th>';
-      headHtml += '</tr>';
-      thead.innerHTML = headHtml;
-
-      var rows = data.items.map(function (item) {
-        var rates = selected.map(function (s) { return rateFor(item.id, s.id); });
-        var quotedRates = rates.filter(function (r) { return r !== null; });
-        var gap = quotedRates.length > 1 ? (Math.max.apply(null, quotedRates) - Math.min.apply(null, quotedRates)) : null;
-        return { item: item, rates: rates, quotedRates: quotedRates, gap: gap };
-      });
-
-      if (searchTerm) {
-        rows = rows.filter(function (r) {
-          return (r.item.partNo + ' ' + r.item.description).toLowerCase().indexOf(searchTerm) !== -1;
-        });
-      }
-      if (commonOnly && selected.length > 0) {
-        rows = rows.filter(function (r) { return r.quotedRates.length === selected.length; });
-      }
-      if (hideNq) {
-        rows = rows.filter(function (r) { return r.item.lowestSupplierId !== null; });
-      }
-
-      if (sortBy === 'gap-desc') {
-        rows.sort(function (a, b) { return (b.gap === null ? -1 : b.gap) - (a.gap === null ? -1 : a.gap); });
-      } else if (sortBy === 'gap-asc') {
-        rows.sort(function (a, b) {
-          if (a.gap === null) return 1;
-          if (b.gap === null) return -1;
-          return a.gap - b.gap;
-        });
-      } else if (sortBy === 'value-desc') {
-        rows.sort(function (a, b) {
-          var av = a.quotedRates.length ? Math.min.apply(null, a.quotedRates) * a.item.qty : -1;
-          var bv = b.quotedRates.length ? Math.min.apply(null, b.quotedRates) * b.item.qty : -1;
-          return bv - av;
-        });
-      }
-
-      if (!rows.length) {
-        tbody.innerHTML = '';
-        emptyMsg.style.display = '';
-        return;
-      }
-      emptyMsg.style.display = 'none';
-
-      var bodyHtml = rows.map(function (r) {
-        var minRate = r.quotedRates.length ? Math.min.apply(null, r.quotedRates) : null;
-        var html = '<tr><td>' + r.item.ser + '</td><td>' + r.item.partNo + '</td><td>' + r.item.description +
-          (r.item.isTied ? ' <span class="badge badge-tie">TIE</span>' : '') + '</td>' +
-          '<td class="num">' + r.item.qty + '</td>';
-        selected.forEach(function (s, i) {
-          var rate = r.rates[i];
-          var isLowestShown = rate !== null && minRate !== null && rate === minRate;
-          html += '<td class="num' + (isLowestShown ? ' lowest-cell' : '') + '">' +
-            (rate === null ? '-' : rate.toFixed(2)) + '</td>';
-        });
-        if (selected.length > 1) {
-          var gapClass = r.gap === null ? '' : (r.gap === 0 ? ' gap-small' : (r.gap > minRate ? ' gap-large' : ''));
-          html += '<td class="num gap-cell' + gapClass + '">' + (r.gap === null ? '-' : r.gap.toFixed(2)) + '</td>';
-        }
-        html += '</tr>';
-        return html;
-      }).join('');
-      tbody.innerHTML = bodyHtml;
-    }
-
-    document.querySelectorAll('.supplier-filter-checkbox').forEach(function (cb) {
-      cb.addEventListener('change', render);
-    });
-    document.getElementById('item-search-input-analysis').addEventListener('input', render);
-    document.getElementById('common-items-only').addEventListener('change', render);
-    document.getElementById('hide-nq-items').addEventListener('change', render);
-    document.getElementById('sort-select').addEventListener('change', render);
-    document.getElementById('select-all-suppliers').addEventListener('click', function (e) {
-      e.preventDefault();
-      document.querySelectorAll('.supplier-filter-checkbox').forEach(function (cb) { cb.checked = true; });
-      render();
-    });
-    document.getElementById('select-none-suppliers').addEventListener('click', function (e) {
-      e.preventDefault();
-      document.querySelectorAll('.supplier-filter-checkbox').forEach(function (cb) { cb.checked = false; });
-      render();
-    });
-
-    render();
-  })();
-</script>
-{% endif %}
+</details>
 {% endblock %}

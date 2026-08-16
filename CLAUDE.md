@@ -152,12 +152,14 @@ app/
                                            # once the proposal is approved) + the
                                            # same _comparative_summary_grid.html
                                            # partial as Quote Entry, so both stay in
-                                           # sync from one shared fragment + a
-                                           # Supplier Analysis panel (stats, lowest-
-                                           # count leaderboard, tie badges, a
-                                           # client-side-filtered supplier-compare
-                                           # table with a live price-gap column -
-                                           # in-app only, Excel export untouched)
+                                           # sync from one shared fragment + stats
+                                           # bar + "Sourcing Options" (adjustable
+                                           # cheapest-N-supplier bundle cards, partial
+                                           # bidders eligible, BEST VALUE highlighted -
+                                           # see cs_engine.compute_best_bundle) with
+                                           # the per-item lowest-count leaderboard
+                                           # collapsed as secondary detail - in-app
+                                           # only, Excel export untouched
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA

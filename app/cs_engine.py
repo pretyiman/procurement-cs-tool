@@ -7,12 +7,21 @@ layers on top of this) - this module always uses the computed-lowest
 bidder, matching the existing CS.xlsx behaviour.
 """
 
+import itertools
+import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlmodel import Session, select
 
 from .models import Item, Quote, Supplier, Tender
+
+# Past this many combinations, brute-forcing every possible supplier subset
+# stops being "fast enough for a page load" - compute_best_bundle falls
+# back to a greedy approximation instead of hanging the request. Realistic
+# RFQ supplier counts (dozens at most) stay well under this for the bundle
+# sizes anyone would actually ask for.
+MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS = 200_000
 
 
 @dataclass
@@ -79,6 +88,31 @@ class SupplierLowestCount:
     supplier_name: str
     item_count: int
     store_value: float
+
+
+@dataclass
+class SupplierBundle:
+    """The cheapest combination of exactly `bundle_size` suppliers that
+    covers the most items - coverage maximized first, cost minimized
+    second among combinations tied on coverage. Partial bidders are
+    eligible for membership (unlike PackageTotal, which only ever
+    considers one supplier who individually covers everything) - a bundle
+    only needs its *members' union* to cover an item, not each member
+    alone. "Bundle size 1" is the same computation degenerating to a
+    single supplier, so it subsumes what PackageTotal's top (fully-
+    quoted) entry represents, just without requiring full coverage from
+    one firm."""
+
+    supplier_ids: List[int]
+    supplier_names: List[str]
+    bundle_size: int
+    covered_item_count: int
+    coverable_item_count: int  # items at least one supplier (anyone) quoted
+    fully_covered: bool
+    store_value: float
+    tax_amount: float
+    contract_value: float
+    approximate: bool  # True if found via the greedy fallback, not exhaustive search
 
 
 @dataclass
@@ -240,6 +274,143 @@ def compute_lowest_count_leaderboard(
     ]
     leaderboard.sort(key=lambda s: (-s.item_count, s.supplier_name))
     return leaderboard
+
+
+def _evaluate_bundle(
+    combo: Tuple[int, ...], rates: Dict[int, Dict[int, float]], items_by_id: Dict[int, Item]
+) -> Tuple[int, float]:
+    """(covered_item_count, store_value) for a specific set of suppliers -
+    each covered item's cost is the cheapest rate among just this combo's
+    members who quoted it, same idea as a per-item award but scoped to a
+    subset of suppliers instead of everyone."""
+    covered = 0
+    store_value = 0.0
+    combo_set = set(combo)
+    for item_id, rate_map in rates.items():
+        applicable = [rate for sid, rate in rate_map.items() if sid in combo_set]
+        if applicable:
+            covered += 1
+            store_value += items_by_id[item_id].qty * min(applicable)
+    return covered, store_value
+
+
+def _greedy_bundle(
+    supplier_ids: List[int],
+    rates: Dict[int, Dict[int, float]],
+    items_by_id: Dict[int, Item],
+    bundle_size: int,
+) -> Tuple[Tuple[int, ...], int, float]:
+    """Approximation used only when brute-forcing every combination would
+    be too slow: repeatedly add whichever remaining supplier covers the
+    most still-uncovered items, tie-broken by lowest cost for that new
+    coverage. Not guaranteed optimal (unlike the exhaustive search), but
+    a reasonable stand-in for large supplier counts."""
+    chosen: List[int] = []
+    covered_items: set = set()
+    remaining = list(supplier_ids)
+
+    for _ in range(bundle_size):
+        best_sid = None
+        best_new_coverage = -1
+        best_marginal_cost = None
+        for sid in remaining:
+            new_items = [iid for iid, rate_map in rates.items() if sid in rate_map and iid not in covered_items]
+            marginal_cost = sum(items_by_id[iid].qty * rates[iid][sid] for iid in new_items)
+            new_coverage = len(new_items)
+            if new_coverage > best_new_coverage or (
+                new_coverage == best_new_coverage and (best_marginal_cost is None or marginal_cost < best_marginal_cost)
+            ):
+                best_sid = sid
+                best_new_coverage = new_coverage
+                best_marginal_cost = marginal_cost
+        if best_sid is None:
+            break
+        chosen.append(best_sid)
+        remaining.remove(best_sid)
+        covered_items.update(iid for iid, rate_map in rates.items() if best_sid in rate_map)
+
+    combo = tuple(chosen)
+    covered, store_value = _evaluate_bundle(combo, rates, items_by_id)
+    return combo, covered, store_value
+
+
+def compute_best_bundle(
+    items: List[Item],
+    quotes_by_item: Dict[int, List[Quote]],
+    suppliers_by_id: Dict[int, Supplier],
+    tax_percent: float,
+    bundle_size: int,
+) -> Optional[SupplierBundle]:
+    """The best `bundle_size`-supplier combination available - None if
+    bundle_size is invalid or there aren't enough distinct quoting
+    suppliers to form one."""
+    if bundle_size < 1:
+        return None
+
+    items_by_id = {item.id: item for item in items}
+    rates: Dict[int, Dict[int, float]] = {}
+    for item in items:
+        for q in quotes_by_item.get(item.id, []):
+            if q.rate is not None:
+                rates.setdefault(item.id, {})[q.supplier_id] = q.rate
+
+    coverable_item_count = len(rates)
+    quoting_supplier_ids = sorted({sid for rate_map in rates.values() for sid in rate_map})
+    if bundle_size > len(quoting_supplier_ids):
+        return None
+
+    num_combinations = math.comb(len(quoting_supplier_ids), bundle_size)
+    if num_combinations <= MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS:
+        best_combo: Optional[Tuple[int, ...]] = None
+        best_covered = -1
+        best_value: Optional[float] = None
+        # combinations() over a sorted input iterates in a fixed, sorted
+        # order, so ties (equal coverage AND equal cost) resolve to
+        # whichever combo comes first there - deterministic, not
+        # incidental like an unordered set/dict would be.
+        for combo in itertools.combinations(quoting_supplier_ids, bundle_size):
+            covered, store_value = _evaluate_bundle(combo, rates, items_by_id)
+            if covered > best_covered or (covered == best_covered and (best_value is None or store_value < best_value)):
+                best_combo, best_covered, best_value = combo, covered, store_value
+        approximate = False
+    else:
+        best_combo, best_covered, best_value = _greedy_bundle(quoting_supplier_ids, rates, items_by_id, bundle_size)
+        approximate = True
+
+    if best_combo is None or best_value is None:
+        return None
+
+    tax_amount = best_value * tax_percent / 100
+    return SupplierBundle(
+        supplier_ids=list(best_combo),
+        supplier_names=[suppliers_by_id[sid].name for sid in best_combo],
+        bundle_size=bundle_size,
+        covered_item_count=best_covered,
+        coverable_item_count=coverable_item_count,
+        fully_covered=best_covered == coverable_item_count and coverable_item_count > 0,
+        store_value=best_value,
+        tax_amount=tax_amount,
+        contract_value=best_value + tax_amount,
+        approximate=approximate,
+    )
+
+
+def compute_bundle_lineup(
+    items: List[Item],
+    quotes_by_item: Dict[int, List[Quote]],
+    suppliers_by_id: Dict[int, Supplier],
+    tax_percent: float,
+    bundle_sizes: List[int],
+) -> List[SupplierBundle]:
+    """One SupplierBundle per requested size, in ascending size order,
+    skipping any size that isn't achievable (bigger than the number of
+    quoting suppliers) or requested twice."""
+    bundles = []
+    for size in sorted(set(bundle_sizes)):
+        bundle = compute_best_bundle(items, quotes_by_item, suppliers_by_id, tax_percent, size)
+        if bundle is not None:
+            bundles.append(bundle)
+    return bundles
 
 
 def build_comparative_statement(session: Session, tender_id: int) -> ComparativeStatement:

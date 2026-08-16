@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .business_rules import get_business_rules
-from .cs_engine import build_comparative_statement
+from .cs_engine import build_comparative_statement, compute_bundle_lineup
 from .custom_fields import (
     SUGGESTED_CS_SIGNATURE_FIELDS,
     create_custom_field,
@@ -123,6 +123,19 @@ def _tied_package_supplier_ids(package_totals: list) -> list:
         top_value = package_totals[0].contract_value
         return [p.supplier_id for p in package_totals if p.fully_quoted and p.contract_value == top_value]
     return []
+
+
+def _parse_bundle_sizes(raw: str, max_size: int) -> list:
+    """Default sizes are always 1 through min(5, however many suppliers
+    actually quoted anything) - plus whatever the admin typed into the
+    "Bundle sizes" field, so it's adjustable without losing the defaults."""
+    requested = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            requested.append(int(part))
+    defaults = list(range(1, min(5, max_size) + 1))
+    return sorted({n for n in defaults + requested if 1 <= n <= max_size})
 
 
 def _phase_landing_url(session: Session, tender: Tender) -> str:
@@ -959,6 +972,7 @@ def comparative_summary_view(
     request: Request,
     view: str = "item",
     package_limit: str = "",
+    bundle_sizes: str = "",
     session: Session = Depends(get_session),
 ):
     tender = session.get(Tender, tender_id)
@@ -1017,38 +1031,21 @@ def comparative_summary_view(
     grid_tied_by_item_id = {r.item.id: r.tied_supplier_ids for r in cs.item_results}
     full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in quotes}
 
-    # Analysis panel: a leaderboard of who's cheapest and how often, plus
-    # coverage stats and enough raw data (as JSON) for the page to filter/
-    # sort/compare suppliers entirely client-side, no server round-trip.
+    # Analysis panel: coverage stats + "Sourcing Options" - the cheapest
+    # combination of exactly N suppliers for a handful of adjustable sizes,
+    # including partial bidders as candidates (not just single suppliers
+    # who individually cover everything - see cs_engine.compute_best_bundle).
     items_unresolved_count = sum(1 for r in cs.item_results if r.lowest_supplier_id is None)
     tied_item_count = sum(1 for r in cs.item_results if r.is_tied)
     full_bidders_count = sum(1 for p in cs.package_totals if p.fully_quoted)
     tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
 
-    item_results_by_item_id = {r.item.id: r for r in cs.item_results}
-    analysis_json = _json_for_script(
-        {
-            "items": [
-                {
-                    "id": item.id,
-                    "ser": item.ser,
-                    "partNo": item.item_master.part_no,
-                    "description": item.item_master.description,
-                    "unit": item.item_master.default_unit,
-                    "qty": item.qty,
-                    "lowestSupplierId": item_results_by_item_id[item.id].lowest_supplier_id,
-                    "isTied": item_results_by_item_id[item.id].is_tied,
-                }
-                for item in items
-            ],
-            "suppliers": [{"id": s.id, "name": s.name} for s in quoting_suppliers],
-            "rates": {
-                f"{item_id}_{supplier_id}": rate
-                for (item_id, supplier_id), rate in full_rate_matrix.items()
-                if rate is not None
-            },
-        }
-    )
+    quotes_by_item: dict = {}
+    for q in quotes:
+        quotes_by_item.setdefault(q.item_id, []).append(q)
+    requested_sizes = _parse_bundle_sizes(bundle_sizes, len(quoting_suppliers))
+    bundles = compute_bundle_lineup(items, quotes_by_item, cs.suppliers_by_id, tender.tax_percent, requested_sizes)
+    bundle_sizes_csv = ",".join(str(n) for n in requested_sizes)
 
     locked = tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated)
     return templates.TemplateResponse(
@@ -1071,7 +1068,8 @@ def comparative_summary_view(
             "items_unresolved_count": items_unresolved_count,
             "tied_item_count": tied_item_count,
             "tied_package_supplier_ids": tied_package_supplier_ids,
-            "analysis_json": analysis_json,
+            "bundles": bundles,
+            "bundle_sizes_csv": bundle_sizes_csv,
         },
     )
 

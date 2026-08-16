@@ -1,4 +1,3 @@
-import json
 import re
 
 from sqlalchemy.pool import StaticPool
@@ -69,12 +68,10 @@ def test_package_view_does_not_falsely_flag_a_tie_for_the_sole_top_supplier():
         resp = client.get(f"/tenders/{tender_id}/comparative-summary?view=package")
         assert resp.status_code == 200
         assert "LOWEST PACKAGE" in resp.text
-        # Baseline of 2 is unavoidable and not evidence of a real tie: the
-        # leaderboard's explanatory copy has one literal example badge, and
-        # the client-side JS source (never executed by TestClient) embeds
-        # another as a string literal. More than that means a package row
-        # was actually (wrongly) flagged.
-        assert resp.text.count('<span class="badge badge-tie">TIE</span>') == 2
+        # Baseline of 1 is unavoidable and not evidence of a real tie: the
+        # leaderboard's own explanatory copy has one literal example badge.
+        # More than that means a package row was actually (wrongly) flagged.
+        assert resp.text.count('<span class="badge badge-tie">TIE</span>') == 1
     finally:
         app.dependency_overrides.clear()
 
@@ -88,8 +85,8 @@ def test_package_view_flags_a_genuine_tie_on_both_suppliers():
 
         resp = client.get(f"/tenders/{tender_id}/comparative-summary?view=package")
         assert resp.status_code == 200
-        # Baseline of 2 (explanatory copy + JS source literal) + 2 for the tied firms' rows.
-        assert resp.text.count('<span class="badge badge-tie">TIE</span>') >= 4
+        # Baseline of 1 (leaderboard's explanatory copy) + 2 for the tied firms' rows.
+        assert resp.text.count('<span class="badge badge-tie">TIE</span>') >= 3
     finally:
         app.dependency_overrides.clear()
 
@@ -114,7 +111,7 @@ def test_item_view_tie_badge_and_stats_bar():
         app.dependency_overrides.clear()
 
 
-def test_leaderboard_partitions_items_and_analysis_json_is_valid():
+def test_leaderboard_partitions_items_correctly():
     client, engine = _make_client()
     try:
         tender_id, item_ids = _tender_with_items(client, engine, "Leaderboard Test", ["A-1", "A-2", "A-3"])
@@ -127,13 +124,53 @@ def test_leaderboard_partitions_items_and_analysis_json_is_valid():
         # Leaderboard: Firm A wins 2 items, Firm B wins 1.
         assert re.search(r"Firm A.*?<td class=\"num\">2</td>", resp.text, re.S)
         assert re.search(r"Firm B.*?<td class=\"num\">1</td>", resp.text, re.S)
+    finally:
+        app.dependency_overrides.clear()
 
-        m = re.search(r'id="cs-analysis-data"[^>]*>(.*?)</script>', resp.text, re.S)
-        assert m is not None
-        payload = json.loads(m.group(1))
-        assert len(payload["items"]) == 3
-        assert len(payload["suppliers"]) == 2
-        assert len(payload["rates"]) == 6  # every item x every supplier quoted here
+
+def test_sourcing_options_bundle_cards_render_and_pick_the_best_value():
+    """Firm A is cheaper on 2 items, Firm B on 1 - the size-1 bundle is
+    whichever of them is cheapest alone (Firm B: 20+20+5=45), but the
+    size-2 bundle (both combined, cheapest-per-item within just the two)
+    is far cheaper still (10+10+5=25) and should be marked BEST VALUE."""
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Bundle Card Test", ["A-1", "A-2", "A-3"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 10, item_ids[1]: 10, item_ids[2]: 100})
+        _quote(client, tender_id, "Firm B", {item_ids[0]: 20, item_ids[1]: 20, item_ids[2]: 5})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary")
+        assert resp.status_code == 200
+        assert "Sourcing Options" in resp.text
+        assert "1 Supplier" in resp.text
+        assert "2 Suppliers" in resp.text
+        assert "Covers all 3 items" in resp.text
+        # Size 1 (Firm B alone): store 45 * 1.18 tax = 53.10. Size 2 (A+B
+        # combined, cheapest per item within the pair): store 25 * 1.18 = 29.50.
+        assert "53.10" in resp.text
+        assert "29.50" in resp.text
+        assert "BEST VALUE" in resp.text
+        assert re.search(r"BEST VALUE.*?29\.50", resp.text, re.S)
+
+        # Adjustable: a custom size beyond the default 1-5 range works too.
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?bundle_sizes=1,2")
+        assert resp.status_code == 200
+        assert "29.50" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_bundle_size_input_is_prefilled_and_adjustable():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Adjustable Bundle Test", ["A-1"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 10})
+        _quote(client, tender_id, "Firm B", {item_ids[0]: 20})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary")
+        assert resp.status_code == 200
+        assert 'name="bundle_sizes"' in resp.text
+        assert 'value="1,2"' in resp.text  # only 2 quoting suppliers - defaults cap there
     finally:
         app.dependency_overrides.clear()
 

@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.cs_engine import build_comparative_statement
+from app.cs_engine import build_comparative_statement, compute_best_bundle, compute_bundle_lineup
 from app.excel_io import get_or_create_item_master, get_or_create_supplier, import_tender
 from app.models import Item, Quote, Supplier
 
@@ -103,6 +103,16 @@ def _make_tender_with_items_and_quotes(session, tender_id, rates_by_item_and_sup
             session.add(Quote(item_id=item.id, supplier_id=supplier_ids[supplier_name], rate=rate))
     session.commit()
     return tender
+
+
+def _quotes_by_item(session, tender_id):
+    items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
+    item_ids = [i.id for i in items]
+    quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
+    by_item = {}
+    for q in quotes:
+        by_item.setdefault(q.item_id, []).append(q)
+    return items, by_item
 
 
 def test_package_total_can_favour_a_supplier_that_wins_fewer_items():
@@ -255,3 +265,138 @@ def test_package_total_includes_tax():
         assert pkg.store_value == pytest.approx(500)
         assert pkg.tax_amount == pytest.approx(50)
         assert pkg.contract_value == pytest.approx(550)
+
+
+# --- compute_best_bundle / compute_bundle_lineup -----------------------------
+
+
+def test_bundle_of_size_one_matches_the_only_full_coverage_supplier():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session, 1, {1: {"Only Supplier": 10}, 2: {"Only Supplier": 20}}
+        )
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+
+        bundle = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, cs.tender.tax_percent, 1)
+        supplier_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "Only Supplier")
+        assert bundle.supplier_ids == [supplier_id]
+        assert bundle.fully_covered is True
+        assert bundle.store_value == pytest.approx(30)
+
+
+def test_bundle_includes_partial_bidders_and_beats_the_single_full_supplier():
+    """Two partial bidders (A covers 1-2 cheaply, B covers 3-4 cheaply)
+    combine into a size-2 bundle that fully covers everything far cheaper
+    than the one supplier (C) who individually covers all 4 items."""
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"A": 10, "C": 50},
+                2: {"A": 10, "C": 50},
+                3: {"B": 10, "C": 50},
+                4: {"B": 10, "C": 50},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+        a_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "A")
+        b_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "B")
+        c_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "C")
+
+        size1 = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 1)
+        assert size1.supplier_ids == [c_id]  # only C can cover everything alone
+        assert size1.store_value == pytest.approx(200)
+
+        size2 = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 2)
+        assert set(size2.supplier_ids) == {a_id, b_id}
+        assert size2.fully_covered is True
+        assert size2.store_value == pytest.approx(40)  # far cheaper than the size-1 bundle
+
+
+def test_bundle_size_larger_than_supplier_count_returns_none():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(session, 1, {1: {"A": 10, "B": 20}})
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+
+        assert compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 3) is None
+        assert compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 0) is None
+
+
+def test_bundle_partial_coverage_when_full_coverage_unreachable_at_that_size():
+    """Item 3 is only ever quoted by C - a size-1 bundle stuck on A or B
+    can't reach it, so the best size-1 bundle is whichever of A/B covers
+    the most (both cover 2 of 3) at the lowest cost, clearly marked as
+    not fully covered."""
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"A": 10, "B": 10},
+                2: {"A": 10, "B": 10},
+                3: {"C": 10},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+
+        bundle = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 1)
+        assert bundle.covered_item_count == 2
+        assert bundle.coverable_item_count == 3
+        assert bundle.fully_covered is False
+
+
+def test_bundle_lineup_skips_unreachable_sizes_and_orders_ascending():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(session, 1, {1: {"A": 10, "B": 20}})
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+
+        lineup = compute_bundle_lineup(items, quotes_by_item, cs.suppliers_by_id, 0, [3, 1, 2, 1])
+        assert [b.bundle_size for b in lineup] == [1, 2]  # size 3 unreachable, dup size 1 collapsed
+
+
+def test_bundle_greedy_fallback_still_returns_a_valid_answer():
+    """Force the brute-force safety cap down to near-zero so the greedy
+    approximation path runs instead. This scenario is deliberately
+    adversarial to a coverage-first greedy (C alone covers everything in
+    one round, so greedy grabs it immediately, even though A+B together
+    is far cheaper) - the point isn't that greedy finds the true optimum
+    (it documented-ly doesn't have to), just that it still returns a
+    valid, self-consistent, fully-covering answer rather than something
+    broken."""
+    import app.cs_engine as cs_engine_module
+
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"A": 10, "C": 50},
+                2: {"A": 10, "C": 50},
+                3: {"B": 10, "C": 50},
+                4: {"B": 10, "C": 50},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+
+        original_cap = cs_engine_module.MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS
+        cs_engine_module.MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS = 0
+        try:
+            bundle = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 2)
+        finally:
+            cs_engine_module.MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS = original_cap
+
+        assert bundle.approximate is True
+        assert len(bundle.supplier_ids) == 2
+        assert bundle.fully_covered is True
+        assert bundle.covered_item_count == 4
+        # Not necessarily optimal (that's the true A+B combo at 40), but
+        # must be at least as good as it - never cheaper than the actual
+        # best possible answer.
+        assert bundle.store_value >= 40
