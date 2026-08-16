@@ -264,6 +264,20 @@ every firm in the approved snapshot to have one of these -
   architecture) - vanilla JS (`showAnalysisDetail`/`hideAnalysisDetail` in
   `comparative_summary.html`) only toggles `display:none`, accordion-style
   (opening one hides any other), with a Close button per panel.
+- **Comparative Summary page tabs**: below the stats bar, the page is
+  split into three tabs - "Sourcing Options" (bundle cards, their detail
+  panels, and the collapsed leaderboard), "Award Decisions" (the
+  click-to-award pills table), and "All Quotes" (the shared
+  `_comparative_summary_grid.html` item/package grid + Download link).
+  Same server-rendered/vanilla-JS approach as the detail panels
+  (`showTab()`), except tab state also survives the page's several
+  full-reload actions (switching item/package view, updating bundle
+  sizes, awarding an item) via a URL hash (`#tab-sourcing` /
+  `#tab-award` / `#tab-quotes`) - each control is statically anchored to
+  its own tab's hash (its GET form action, its `location.href` navigation,
+  or its POST route's 303 redirect in `main.py`), since each control only
+  ever lives inside one specific tab, so no dynamic "current tab" state
+  needs to be threaded through the server.
 - **Package total tie** - same idea, for the "lowest total from one
   supplier" ranking (`compute_package_totals`): the sort key includes
   `supplier_id` as a final tie-break so ordering is deterministic (not

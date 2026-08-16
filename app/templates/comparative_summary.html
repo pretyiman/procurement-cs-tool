@@ -27,6 +27,14 @@
   <div class="stat-card"><div class="value">{{ tied_item_count }}</div><div class="label">Tied items</div></div>
 </div>
 
+<div class="tab-nav">
+  <button type="button" class="tab-nav-btn" data-tab="tab-sourcing" onclick="showTab('tab-sourcing')">Sourcing Options</button>
+  <button type="button" class="tab-nav-btn" data-tab="tab-award" onclick="showTab('tab-award')">Award Decisions</button>
+  <button type="button" class="tab-nav-btn" data-tab="tab-quotes" onclick="showTab('tab-quotes')">All Quotes</button>
+</div>
+
+<div id="tab-sourcing" class="tab-panel">
+
 <h2>Sourcing Options</h2>
 <p class="muted">
   The cheapest way to cover this RFQ at a few different supplier counts - combinations of partial bidders are
@@ -35,7 +43,7 @@
 </p>
 
 <div class="card">
-  <form method="get" action="/tenders/{{ tender.id }}/comparative-summary" class="row-form" style="max-width:420px">
+  <form method="get" action="/tenders/{{ tender.id }}/comparative-summary#tab-sourcing" class="row-form" style="max-width:420px">
     <input type="hidden" name="view" value="{{ view }}">
     <div class="field">
       <label for="bundle_sizes">Bundle sizes to compare (comma-separated)</label>
@@ -175,6 +183,10 @@
   {% endif %}
 </details>
 
+</div>
+
+<div id="tab-award" class="tab-panel" style="display:none">
+
 <h2>Award Decisions</h2>
 {% if locked %}
 <div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
@@ -242,6 +254,30 @@
   </table>
 </div>
 
+</div>
+
+<div id="tab-quotes" class="tab-panel" style="display:none">
+
 {% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/comparative-summary" %}
 {% include "_comparative_summary_grid.html" %}
+
+</div>
+
+<script>
+  function showTab(id) {
+    document.querySelectorAll('.tab-panel').forEach(function (el) { el.style.display = 'none'; });
+    document.querySelectorAll('.tab-nav-btn').forEach(function (el) { el.classList.remove('active'); });
+    var panel = document.getElementById(id);
+    if (panel) { panel.style.display = ''; }
+    var btn = document.querySelector('.tab-nav-btn[data-tab="' + id + '"]');
+    if (btn) { btn.classList.add('active'); }
+    if (history.replaceState) { history.replaceState(null, '', '#' + id); }
+  }
+  (function () {
+    var validTabs = ['tab-sourcing', 'tab-award', 'tab-quotes'];
+    var initial = (location.hash || '').replace('#', '');
+    if (validTabs.indexOf(initial) === -1) { initial = 'tab-sourcing'; }
+    showTab(initial);
+  })();
+</script>
 {% endblock %}

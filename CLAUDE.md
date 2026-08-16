@@ -148,26 +148,29 @@ app/
     quote_entry.html                    # "/tenders/{id}/quote-entry" — guided entry,
                                          # includes _comparative_summary_grid.html
     comparative_summary.html              # "/tenders/{id}/comparative-summary" —
-                                           # click-to-award pills (locks read-only
-                                           # once the proposal is approved) + the
-                                           # same _comparative_summary_grid.html
-                                           # partial as Quote Entry, so both stay in
-                                           # sync from one shared fragment + stats
-                                           # bar + "Sourcing Options" (adjustable
-                                           # cheapest-N-supplier bundle cards, partial
-                                           # bidders eligible, BEST VALUE highlighted -
-                                           # see cs_engine.compute_best_bundle) with
-                                           # the per-item lowest-count leaderboard
-                                           # collapsed as secondary detail - in-app
-                                           # only, Excel export untouched. "Full
+                                           # below the stats bar, split into 3 tabs
+                                           # (vanilla JS showTab(), tab state kept in
+                                           # a URL hash so it survives this page's
+                                           # full-reload actions): "Sourcing Options"
+                                           # (adjustable cheapest-N-supplier bundle
+                                           # cards, partial bidders eligible, BEST
+                                           # VALUE highlighted - see
+                                           # cs_engine.compute_best_bundle - with the
+                                           # per-item lowest-count leaderboard
+                                           # collapsed as secondary detail; "Full
                                            # bidders" stat card + every bundle card
-                                           # are click-to-reveal (vanilla JS, no
-                                           # AJAX): shows that card's detail table
-                                           # (full-bidder list, or a bundle's
-                                           # item-by-item breakdown incl. items it
-                                           # doesn't cover) in a shared
-                                           # #analysis-detail-area above the
-                                           # collapsed leaderboard, accordion-style
+                                           # are also click-to-reveal (vanilla JS, no
+                                           # AJAX) showing that card's detail table
+                                           # in a shared #analysis-detail-area, incl.
+                                           # items a bundle doesn't cover, above the
+                                           # collapsed leaderboard, accordion-style),
+                                           # "Award Decisions" (click-to-award pills,
+                                           # locks read-only once the proposal is
+                                           # approved), and "All Quotes" (the same
+                                           # _comparative_summary_grid.html partial
+                                           # as Quote Entry, so both stay in sync
+                                           # from one shared fragment - in-app only,
+                                           # Excel export untouched)
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA

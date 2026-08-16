@@ -4,12 +4,12 @@
   <div class="row-form" style="gap:1.5rem">
     <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
       <input type="radio" name="cs_view" value="item" style="width:auto" {{ 'checked' if view != 'package' else '' }}
-             onchange="location.href='{{ cs_view_base_url }}?view=item{{ supplier_qs }}'">
+             onchange="location.href='{{ cs_view_base_url }}?view=item{{ supplier_qs }}#tab-quotes'">
       Non-package (cheapest item per row)
     </label>
     <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
       <input type="radio" name="cs_view" value="package" style="width:auto" {{ 'checked' if view == 'package' else '' }}
-             onchange="location.href='{{ cs_view_base_url }}?view=package{{ supplier_qs }}'">
+             onchange="location.href='{{ cs_view_base_url }}?view=package{{ supplier_qs }}#tab-quotes'">
       Package (lowest total from one supplier)
     </label>
   </div>
@@ -29,9 +29,9 @@
     <p class="muted" style="margin-top:0">
       Showing {{ package_totals|length }} of {{ total_count }} -
       {% for n in [5, 10, 25] %}
-        {% if n < total_count %}<a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit={{ n }}">Top {{ n }}</a> &middot; {% endif %}
+        {% if n < total_count %}<a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit={{ n }}#tab-quotes">Top {{ n }}</a> &middot; {% endif %}
       {% endfor %}
-      <a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit=all">All {{ total_count }}</a>
+      <a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit=all#tab-quotes">All {{ total_count }}</a>
     </p>
     {% endif %}
     <table>

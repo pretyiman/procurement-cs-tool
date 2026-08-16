@@ -1107,7 +1107,7 @@ def set_award_override(
 
     session.add(item)
     session.commit()
-    return RedirectResponse(f"/tenders/{tender_id}/comparative-summary", status_code=303)
+    return RedirectResponse(f"/tenders/{tender_id}/comparative-summary#tab-award", status_code=303)
 
 
 @app.get("/tenders/{tender_id}/proposal", response_class=HTMLResponse)
