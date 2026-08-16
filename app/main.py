@@ -18,6 +18,7 @@ from .business_rules import get_business_rules
 from .cs_engine import build_comparative_statement, compute_bundle_lineup, compute_item_result
 from .custom_fields import (
     SUGGESTED_CS_SIGNATURE_FIELDS,
+    SUGGESTED_PP_CA_FIELDS,
     create_custom_field,
     create_group,
     custom_fields_dict_for_tender,
@@ -1588,9 +1589,14 @@ def update_cs_labels(
 def custom_fields_form(request: Request, error: str = "", saved: str = "", session: Session = Depends(get_session)):
     fields = list_custom_fields(session)
     used_suggestions = {f.tag_name for f in fields}
-    suggestions = [
+    cs_suggestions = [
         {"tag_name": name, "description": desc}
         for name, desc in SUGGESTED_CS_SIGNATURE_FIELDS.items()
+        if name not in used_suggestions
+    ]
+    pp_ca_suggestions = [
+        {"tag_name": name, "description": desc}
+        for name, desc in SUGGESTED_PP_CA_FIELDS.items()
         if name not in used_suggestions
     ]
     groups = list_groups(session)
@@ -1603,7 +1609,8 @@ def custom_fields_form(request: Request, error: str = "", saved: str = "", sessi
         "custom_fields.html",
         {
             "fields": fields,
-            "suggestions": suggestions,
+            "cs_suggestions": cs_suggestions,
+            "pp_ca_suggestions": pp_ca_suggestions,
             "error": error,
             "saved": bool(saved),
             "groups_view": groups_view,

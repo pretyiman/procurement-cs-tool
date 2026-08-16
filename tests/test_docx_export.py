@@ -263,3 +263,117 @@ def test_purchase_proposal_est_cost_uses_lpr_when_present():
 
         assert f"{snapshot.grand_contract_value:,.2f}" in full_text
         assert f"{tender.tax_percent:.2f}% inc" in full_text
+
+
+# --- Custom field blanks (indentor/authority/routing-chain details) --------
+# These were hardcoded generic placeholder text in the templates until a
+# real department's sample CA/PP showed they actually vary per department -
+# see docs/data-model.md and custom_fields.SUGGESTED_PP_CA_FIELDS. Each is
+# now {{ tag|default('...') }}, so it must render the exact original text
+# when no custom field is supplied, and the override when one is.
+
+
+def test_ca_department_blanks_default_to_original_static_text_when_unset():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s SNS Enterprises")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        content = generate_contract_award(tender, group, supplier, contract_no="TEST-001", rules=DEFAULT_RULES)
+        full_text = _full_text(Document(BytesIO(content)))
+
+        assert "{{" not in full_text and "{%" not in full_text
+        assert "SUPPY CHAIN MANAGEMENT DEPARTMENT OF TECHNOLOGY." in full_text
+        assert "MoDP (IP) Fund Code Head 2/609/73" in full_text
+        assert "Local" in full_text
+        assert "Managing Director of Company" in full_text
+        assert "An officer detailed by the Managing Director" in full_text
+        assert "Controller of Military Accounts CMA HIT Taxila" in full_text
+        assert "CHAIRMAN Managing Director HRF-T" in full_text
+
+
+def test_ca_department_blanks_use_custom_fields_when_provided():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        _snapshot, group = _snapshot_and_group(session, tender, "M/s SNS Enterprises")
+        supplier = session.get(Supplier, group.supplier_id)
+
+        custom_fields = {
+            "indentor_name": "TEST INDENTOR DEPT",
+            "cost_head": "TEST/FUND/999",
+            "country_of_origin": "TEST-ORIGIN",
+            "inspection_authority": "TEST INSPECTION AUTHORITY",
+            "inspection_officer_detail": "TEST OFFICER TITLE",
+            "place_of_inspection": "TEST SITE",
+            "ca_paying_authority": "TEST PAYING AUTHORITY",
+            "secrecy_authority": "TEST-SECRECY-DEPT",
+        }
+        content = generate_contract_award(
+            tender, group, supplier, contract_no="TEST-001", rules=DEFAULT_RULES, custom_fields=custom_fields
+        )
+        full_text = _full_text(Document(BytesIO(content)))
+
+        assert "{{" not in full_text and "{%" not in full_text
+        for value in custom_fields.values():
+            assert value in full_text
+        assert "SUPPY CHAIN MANAGEMENT DEPARTMENT OF TECHNOLOGY." not in full_text
+        assert "Managing Director of Company" not in full_text
+
+
+def test_pp_department_blanks_default_to_original_static_text_when_unset():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        for group in proposal.firm_groups:
+            supplier = session.get(Supplier, group.supplier_id)
+            supplier.address = f"Address for {supplier.name}"
+            session.add(supplier)
+        session.commit()
+
+        snapshot = save_proposal_snapshot(session, tender.id)
+        suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
+
+        content = generate_purchase_proposal_doc(tender, snapshot, suppliers_by_id)
+        full_text = _full_text(Document(BytesIO(content)))
+
+        assert "{{" not in full_text and "{%" not in full_text
+        assert "our Organization" in full_text
+        assert "admin" in full_text
+        assert "Department (TEC)" in full_text
+        assert "MD HRF" in full_text
+        assert "For provn of PRC, vetting of CST & draft contract, pl." in full_text
+        assert "B & AO" in full_text
+        assert "For provn of TEC." in full_text
+
+
+def test_pp_department_blanks_use_custom_fields_when_provided():
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        proposal = build_purchase_proposal(session, tender.id)
+        for group in proposal.firm_groups:
+            supplier = session.get(Supplier, group.supplier_id)
+            supplier.address = f"Address for {supplier.name}"
+            session.add(supplier)
+        session.commit()
+
+        snapshot = save_proposal_snapshot(session, tender.id)
+        suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
+
+        custom_fields = {
+            "pp_paying_authority": "TEST PAYER",
+            "pp_prep_officer_rank_name": "TEST RANK (Test Name)",
+            "pp_prep_officer_department": "TEST DEPT (TD)",
+            "routing_mid_role": "TEST MID ROLE",
+            "routing_md_hrf_remark": "TEST MID REMARK",
+            "routing_final_role": "TEST FINAL ROLE",
+            "routing_final_remark": "TEST FINAL REMARK",
+        }
+        content = generate_purchase_proposal_doc(tender, snapshot, suppliers_by_id, custom_fields=custom_fields)
+        full_text = _full_text(Document(BytesIO(content)))
+
+        assert "{{" not in full_text and "{%" not in full_text
+        for value in custom_fields.values():
+            assert value in full_text
+        assert "our Organization" not in full_text
+        assert "admin" not in full_text
+        assert "MD HRF" not in full_text

@@ -156,6 +156,38 @@ CS Excel export to show a designation/rank line under the matching
 signature role, since that layout is fixed cells (openpyxl), not
 template-tag-driven like the Word docs.
 
+**PP/CA "department blank" fields** (`custom_fields.SUGGESTED_PP_CA_FIELDS`,
+15 names) exist because comparing the shipped `ca_template.docx`/
+`pp_template.docx` against a real department's filled-in sample CA/PP
+showed several blanks that looked like fixed boilerplate were actually
+supposed to vary per department - the sample had them manually
+highlighted red to flag "fill this in," and the shipped template had
+generic stand-in text in the same spots (`"our Organization"`,
+`"Company"`, `"admin"`, `"Managing Director of Company"`, ...). Each of
+those spots is now `{{ tag|default('the original static text') }}` in the
+template, so the document renders byte-for-byte identical to before
+unless a same-named `CustomField` exists - typically inside the
+originating department's `CustomFieldGroup`, since these are exactly the
+"consignee/authority differs by department" case that mechanism was built
+for:
+- CA: `indentor_name`, `cost_head`, `country_of_origin`,
+  `inspection_authority`, `inspection_officer_detail`,
+  `place_of_inspection`, `ca_paying_authority`, `secrecy_authority`
+- PP: `pp_paying_authority`, `pp_prep_officer_rank_name`,
+  `pp_prep_officer_department`, `routing_mid_role`,
+  `routing_md_hrf_remark`, `routing_final_role`, `routing_final_remark`
+  (the last four are the routing/circulation chain in the PP signature
+  block - which role approves next, and the remark shown beside them)
+
+Deliberately scoped to *only* the blanks confirmed dynamic against that
+one real sample - a couple of adjacent lines (the "Through ___" routing
+slots, the top "Dir SCM" addressee, a same-in-both-versions self-
+referential paragraph number like "para 22~23/N") were left as static
+template text since there was no evidence they vary; if they turn out to
+need to, non-technical staff can still edit `ca_template.docx`/
+`pp_template.docx` directly in Word (Settings > Document Templates), same
+as any other wording change.
+
 ### ProposalSnapshot (frozen Purchase Proposal, one per tender)
 | field | type | notes |
 |---|---|---|

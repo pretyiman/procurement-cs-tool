@@ -107,7 +107,22 @@ app/
                                                # lines. Real per-contract data
                                                # always overrides a same-named
                                                # field; reserved names blocked at
-                                               # creation (RESERVED_TAG_NAMES)
+                                               # creation (RESERVED_TAG_NAMES).
+                                               # SUGGESTED_PP_CA_FIELDS names 15
+                                               # consignee/authority/routing-chain
+                                               # blanks in ca_template.docx/
+                                               # pp_template.docx that were found
+                                               # hardcoded to one department's
+                                               # wording (e.g. "our Organization",
+                                               # "Company") when a real sample CA/PP
+                                               # from a different department showed
+                                               # they actually vary - each is now
+                                               # {{ tag|default('original text') }},
+                                               # so it renders unchanged until a
+                                               # same-named field (typically inside
+                                               # that department's Custom Field
+                                               # Group) is created - see
+                                               # docs/data-model.md
   template_manager.py                       # Settings > Document Templates:
                                              # download/upload/restore pp_template.docx
                                              # and ca_template.docx from the browser,
@@ -306,3 +321,21 @@ than committed. If you need to re-derive the templates from them again in
 a later session, they should still be sitting at the repo root; if they're
 missing, ask the user for them rather than reconstructing content from
 memory of this file.
+
+A later session was given a second, real-looking sample set - `CA 8127.doc`,
+`PP 8127.doc`, `CST 8127.xlsx` (a real tender number, real department/
+personnel names and figures, not the `CS.xlsx` dummy dataset's numbers) -
+used the same way: analysing which text in them was manually highlighted
+red (meaning "this varies, fill it in") against what the shipped templates
+had hardcoded, which is what `custom_fields.SUGGESTED_PP_CA_FIELDS` (see
+`docs/data-model.md`) came from. `.gitignore` covers this pattern
+generically (`CA *.doc`, `PP *.doc`, `CST *.xlsx`) so any future sample set
+following this same "type space number" naming stays out of git without
+needing a new `.gitignore` entry each time - check `git status` after
+adding a new sample file to confirm it's actually ignored before assuming
+so, since a differently-named file wouldn't be. These files are local-only
+reference material, not durable - if a later session needs to re-derive
+something from them and they're missing, ask the user rather than
+reconstructing content from memory of this file (which deliberately does
+not reproduce the sensitive text itself, only the field-name mapping it
+led to).

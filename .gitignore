@@ -14,4 +14,7 @@ build/
 generated/
 CA.doc
 PP.doc
+CA *.doc
+PP *.doc
+CST *.xlsx
 /docx_templates/

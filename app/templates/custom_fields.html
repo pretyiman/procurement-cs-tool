@@ -16,14 +16,33 @@
 <div class="card notice-exists"><strong>Saved.</strong> New documents will use the updated fields.</div>
 {% endif %}
 
-{% if suggestions %}
+{% if cs_suggestions %}
 <div class="card">
-  <h2 style="margin-top:0">Suggested fields</h2>
+  <h2 style="margin-top:0">Suggested fields - CS Excel export</h2>
   <p class="muted" style="margin-top:0">The CS Excel export's signature block will show a designation/rank line under each role automatically, if a field with one of these exact names exists:</p>
   <table>
     <thead><tr><th>Tag name</th><th>Where it's used</th></tr></thead>
     <tbody>
-      {% for s in suggestions %}
+      {% for s in cs_suggestions %}
+      <tr><td><code>{{ s.tag_name }}</code></td><td>{{ s.description }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if pp_ca_suggestions %}
+<div class="card">
+  <h2 style="margin-top:0">Suggested fields - Purchase Proposal / Contract Award</h2>
+  <p class="muted" style="margin-top:0">
+    These blanks in the PP/CA Word templates render today's default wording until a field with one of these
+    exact names exists - typically inside a department's Custom Field Group below, since these are
+    consignee/authority details that differ by department:
+  </p>
+  <table>
+    <thead><tr><th>Tag name</th><th>Where it's used</th></tr></thead>
+    <tbody>
+      {% for s in pp_ca_suggestions %}
       <tr><td><code>{{ s.tag_name }}</code></td><td>{{ s.description }}</td></tr>
       {% endfor %}
     </tbody>

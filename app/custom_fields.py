@@ -59,6 +59,31 @@ SUGGESTED_CS_SIGNATURE_FIELDS = {
     "fmsad_designation": "Designation shown under the final-approver role on the CS Excel export",
 }
 
+# Blanks in ca_template.docx/pp_template.docx that were hardcoded generic
+# placeholder text (e.g. "our Organization", "Company") until a real
+# department's sample Contract Award / Purchase Proposal showed they
+# actually vary per department - each is now {{ tag|default('...') }} in
+# the template, so it renders exactly as before until a same-named custom
+# field is created (typically inside a department's CustomFieldGroup,
+# since these are consignee/authority details that differ by department).
+SUGGESTED_PP_CA_FIELDS = {
+    "indentor_name": "CA \"Name of Indentor\" - who's requesting the stores",
+    "cost_head": "CA \"Cost Debitable to Head\" - the fund/budget code",
+    "country_of_origin": "CA \"Country of Origin\" line",
+    "inspection_authority": "CA \"Inspection authority\" line",
+    "inspection_officer_detail": "CA \"Inspection Officer\" - who the officer is detailed by",
+    "place_of_inspection": "CA \"Place of Inspection\" line",
+    "ca_paying_authority": "CA \"Terms of Payment\" - who makes payment",
+    "secrecy_authority": "CA \"Secrecy\" clause - the authority who can release information",
+    "pp_paying_authority": "PP \"Terms of Payment\" - who makes payment",
+    "pp_prep_officer_rank_name": "PP signature block - preparing officer's rank & name",
+    "pp_prep_officer_department": "PP signature block - preparing officer's department",
+    "routing_mid_role": "PP routing chain - the mid-level approver's role/title",
+    "routing_md_hrf_remark": "PP routing chain - remark shown next to the mid-level approver",
+    "routing_final_role": "PP routing chain - the final approver's role/title",
+    "routing_final_remark": "PP routing chain - remark shown next to the final approver",
+}
+
 _TAG_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
