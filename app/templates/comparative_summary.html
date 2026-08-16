@@ -21,75 +21,6 @@
   <div class="stat-card"><div class="value">{{ tied_item_count }}</div><div class="label">Tied items</div></div>
 </div>
 
-{% if locked %}
-<div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
-{% endif %}
-
-<div class="card">
-  <table>
-    <thead>
-      <tr><th style="width:3rem">Ser</th><th style="width:22rem">Item</th><th>Quoted prices - click to award</th></tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td>{{ row.item.ser }}</td>
-        <td>
-          {{ row.item.item_master.description }}
-          {% if row.is_tied %}<span class="badge badge-tie" title="Tied lowest: {{ row.tied_names|join(', ') }}">TIE</span>{% endif %}
-          <br>
-          {% if row.invalid_override %}
-            <small class="nq">override invalid (supplier no longer quotes this item) - needs review</small>
-          {% elif row.awarded_name %}
-            <small class="muted">
-              Awarded: {{ row.awarded_name }} @ {{ '%.2f'|format(row.awarded_rate) }}
-              {% if row.is_override %} (override){% endif %}
-            </small>
-            {% if row.is_override and row.override_reason %}<br><small class="muted">Reason: {{ row.override_reason }}</small>{% endif %}
-          {% else %}
-            <small class="nq">unresolved (NQ by every firm)</small>
-          {% endif %}
-        </td>
-        <td>
-          {% if locked and row.options %}
-          {% for sid, name, rate in row.options %}
-          <span class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
-            {{ name }} @ {{ '%.2f'|format(rate) }}
-            {% if sid == row.lowest_supplier_id %}<span class="badge">Lowest</span>{% endif %}
-          </span>
-          {% endfor %}
-          {% elif locked %}
-          <span class="nq">no firm quoted this item</span>
-          {% elif row.options %}
-          <form method="post" action="/tenders/{{ tender.id }}/items/{{ row.item.id }}/award">
-            <input type="text" name="award_reason" placeholder="Reason (required if not lowest)"
-                   value="{{ row.override_reason or '' }}"
-                   style="width:220px; display:inline-block; margin-bottom:0.4rem;">
-            <br>
-            {% for sid, name, rate in row.options %}
-            <button type="submit" name="awarded_supplier_id" value="{{ sid }}"
-                    class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
-              {{ name }} @ {{ '%.2f'|format(rate) }}
-              {% if sid == row.lowest_supplier_id %}<span class="badge">Lowest</span>{% endif %}
-            </button>
-            {% endfor %}
-            {% if row.is_override %}
-            <button type="submit" name="awarded_supplier_id" value="" class="btn btn-secondary" style="padding:0.35rem 0.8rem;font-size:0.85rem;">Reset to lowest</button>
-            {% endif %}
-          </form>
-          {% else %}
-          <span class="nq">no firm quoted this item</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-{% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/comparative-summary" %}
-{% include "_comparative_summary_grid.html" %}
-
 <h2>Sourcing Options</h2>
 <p class="muted">
   The cheapest way to cover this RFQ at a few different supplier counts - combinations of partial bidders are
@@ -161,4 +92,74 @@
   <p class="empty">No quotes yet.</p>
   {% endif %}
 </details>
+
+<h2>Award Decisions</h2>
+{% if locked %}
+<div class="card notice-exists">Award decisions are locked - the proposal has been approved (or the RFQ is already awarded).</div>
+{% endif %}
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th style="width:3rem">Ser</th><th style="width:22rem">Item</th><th>Quoted prices - click to award</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.item.ser }}</td>
+        <td>
+          {{ row.item.item_master.description }}
+          {% if row.is_tied %}<span class="badge badge-tie" title="Tied lowest: {{ row.tied_names|join(', ') }}">TIE</span>{% endif %}
+          <br>
+          {% if row.invalid_override %}
+            <small class="nq">override invalid (supplier no longer quotes this item) - needs review</small>
+          {% elif row.awarded_name %}
+            <small class="muted">
+              Awarded: {{ row.awarded_name }} @ {{ '%.2f'|format(row.awarded_rate) }}
+              {% if row.is_override %} (override){% endif %}
+            </small>
+            {% if row.is_override and row.override_reason %}<br><small class="muted">Reason: {{ row.override_reason }}</small>{% endif %}
+          {% else %}
+            <small class="nq">unresolved (NQ by every firm)</small>
+          {% endif %}
+        </td>
+        <td>
+          {% if locked and row.options %}
+          {% for sid, name, rate in row.options %}
+          <span class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
+            {{ name }} @ {{ '%.2f'|format(rate) }}
+            {% if sid == row.lowest_supplier_id %}<span class="badge">Lowest</span>{% endif %}
+          </span>
+          {% endfor %}
+          {% elif locked %}
+          <span class="nq">no firm quoted this item</span>
+          {% elif row.options %}
+          <form method="post" action="/tenders/{{ tender.id }}/items/{{ row.item.id }}/award">
+            <input type="text" name="award_reason" placeholder="Reason (required if not lowest)"
+                   value="{{ row.override_reason or '' }}"
+                   style="width:220px; display:inline-block; margin-bottom:0.4rem;">
+            <br>
+            {% for sid, name, rate in row.options %}
+            <button type="submit" name="awarded_supplier_id" value="{{ sid }}"
+                    class="price-pill {{ 'lowest' if sid == row.lowest_supplier_id else '' }} {{ 'awarded' if sid == row.awarded_supplier_id else '' }}">
+              {{ name }} @ {{ '%.2f'|format(rate) }}
+              {% if sid == row.lowest_supplier_id %}<span class="badge">Lowest</span>{% endif %}
+            </button>
+            {% endfor %}
+            {% if row.is_override %}
+            <button type="submit" name="awarded_supplier_id" value="" class="btn btn-secondary" style="padding:0.35rem 0.8rem;font-size:0.85rem;">Reset to lowest</button>
+            {% endif %}
+          </form>
+          {% else %}
+          <span class="nq">no firm quoted this item</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/comparative-summary" %}
+{% include "_comparative_summary_grid.html" %}
 {% endblock %}
