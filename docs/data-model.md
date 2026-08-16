@@ -292,6 +292,43 @@ every firm in the approved snapshot to have one of these -
   displayed read-only next to an override, when present) purely so any
   reason text entered before this change keeps displaying correctly - no
   new reason text can be entered going forward.
+- **"All Quotes" supplier narrowing, a working comparison** (main.py's
+  `comparative_summary_view`, `export_working_comparison_xlsx` in
+  `excel_io.py`) - a tender with many suppliers (say 15) puts every one of
+  them in the official Comparative Statement, which is correct for
+  transparency but can be too wide to work with when just trying to decide
+  who to shortlist. The "All Quotes" tab has a "Compare selected
+  suppliers" panel: checkboxes (all checked by default = unfiltered,
+  today's behaviour unchanged), quick-select shortcuts ("All", "Lowest N
+  overall" for N in 3/5/10 when there are more than N quoting suppliers -
+  ranked by `PackageTotal.contract_value`, the same ranking already used
+  for the package view, so "cheapest overall" means cheapest fully-quoted
+  first, then cheapest partial), and each Sourcing Options bundle card
+  gets a "Use these suppliers in All Quotes" link that pre-selects exactly
+  that bundle's members. Selecting a subset filters the on-screen grid in
+  both item and package view - the "lowest" highlight is *recomputed*
+  among just the selected suppliers (`compute_item_result` re-run with
+  quotes limited to the selection; `PackageTotal`/tie detection re-derived
+  by filtering `cs.package_totals`, since each supplier's own package
+  total doesn't depend on anyone else so a plain filter is correct there)
+  rather than reusing the global lowest, which could point at a supplier
+  no longer shown. A "Download Working Comparison" button exports just
+  the selected suppliers to a distinctly-labeled, non-official workbook
+  (title "WORKING COMPARISON - SELECTED SUPPLIERS ONLY", no signature
+  block, no re-import support - unlike `export_cs_xlsx`/
+  `export_package_cs_xlsx`, which it doesn't touch or share code with).
+  Selection is carried entirely via a repeated `suppliers` query param (no
+  `suppliers` at all = everyone, the default) plus a `suppliers_filter`
+  sentinel hidden field the checkbox form always submits so an explicit
+  "everything unchecked" is distinguishable from a fresh unfiltered page
+  load - both cases are handled server-side, no client JS state. The
+  **official** `/export` and `/export-package` routes take no `suppliers`
+  parameter at all and are completely untouched by any of this, by design
+  - the split was a deliberate decision (not my default) after discussing
+  that government procurement generally expects the official Comparative
+  Statement to show every bidder who quoted, for audit/transparency
+  reasons, so hiding suppliers from *that* document was ruled out; this
+  feature only narrows a separate, clearly-labeled working view.
 - **Package total tie** - same idea, for the "lowest total from one
   supplier" ranking (`compute_package_totals`): the sort key includes
   `supplier_id` as a final tie-break so ordering is deterministic (not

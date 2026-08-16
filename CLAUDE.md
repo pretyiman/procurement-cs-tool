@@ -77,7 +77,13 @@ app/
                                    # ContractAward.contract_no; CA/PP docs render
                                    # only from this frozen data, never live state
   excel_io.py                     # import CS.xlsx, catalog/supplier get-or-create,
-                                   # CS export, purchase proposal export
+                                   # CS export, purchase proposal export, + the
+                                   # non-official "Working Comparison" export
+                                   # (export_working_comparison_xlsx) - a
+                                   # user-narrowed supplier subset, deliberately
+                                   # shaped differently (no signature block, no
+                                   # re-import) so it can't be mistaken for the
+                                   # official CS
   docx_export.py                    # PP/CA document generation (docxtpl),
                                      # renders from ProposalSnapshot, not live
                                      # award_engine data
@@ -170,9 +176,20 @@ app/
                                            # read-only once the proposal is
                                            # approved), and "All Quotes" (the same
                                            # _comparative_summary_grid.html partial
-                                           # as Quote Entry, so both stay in sync
-                                           # from one shared fragment - in-app only,
-                                           # Excel export untouched)
+                                           # as Quote Entry, so both stay in sync from
+                                           # one shared fragment, plus a "Compare
+                                           # selected suppliers" panel - checkboxes +
+                                           # Lowest-N/bundle quick-selects that filter
+                                           # the on-screen grid, recomputing "lowest"
+                                           # among just the selection, and a "Download
+                                           # Working Comparison" export scoped to it -
+                                           # see docs/data-model.md. The OFFICIAL
+                                           # /export and /export-package downloads
+                                           # take no supplier filter and always
+                                           # include everyone, untouched by this - a
+                                           # deliberate split, not an oversight, since
+                                           # government CS documents are generally
+                                           # expected to show every bidder)
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA

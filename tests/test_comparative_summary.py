@@ -221,3 +221,191 @@ def test_best_value_badge_goes_only_on_the_smallest_tied_bundle():
         assert "Same value, 2 is enough" in resp.text
     finally:
         app.dependency_overrides.clear()
+
+
+def test_all_quotes_defaults_to_showing_every_supplier():
+    """No `suppliers` query param at all = unfiltered, matching behaviour
+    from before supplier selection existed."""
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Default Selection Test", ["A-1"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+        _quote(client, tender_id, "Firm B", {item_ids[0]: 50})
+        _quote(client, tender_id, "Firm C", {item_ids[0]: 75})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?view=item")
+        assert resp.status_code == 200
+        assert "Firm A" in resp.text and "Firm B" in resp.text and "Firm C" in resp.text
+        assert "No suppliers selected" not in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _grid_table_html(resp_text: str) -> str:
+    """Slice out just the "All Quotes" grid's own table/message content -
+    excludes the supplier checkbox panel (which always lists everyone, by
+    design) and the Sourcing Options tab's bundle cards (which name
+    suppliers in their own "Use these suppliers" links), both of which
+    would otherwise cause false negatives on a naive "name not in resp.text"
+    check."""
+    start = resp_text.index("All quotes so far")
+    tail = resp_text[start:]
+    for marker in ("Download Comparative Statement", "</div>\n\n<script>"):
+        if marker in tail:
+            return tail[: tail.index(marker)]
+    return tail
+
+
+def test_supplier_filter_narrows_grid_and_recomputes_lowest():
+    """Filtering out the globally-cheapest supplier must move the
+    lowest-cell highlight to the cheapest among just the selected ones -
+    not keep pointing at a supplier that's no longer shown."""
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Filter Recompute Test", ["A-1"])
+        firm_a = _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+        firm_b = _quote(client, tender_id, "Firm B", {item_ids[0]: 50})  # global lowest
+        firm_c = _quote(client, tender_id, "Firm C", {item_ids[0]: 75})
+
+        # Exclude Firm B (the global lowest) from the selection.
+        resp = client.get(
+            f"/tenders/{tender_id}/comparative-summary?view=item&suppliers={firm_a}&suppliers={firm_c}"
+        )
+        assert resp.status_code == 200
+        grid_html = _grid_table_html(resp.text)
+        assert "Firm A" in grid_html and "Firm C" in grid_html
+        assert "Firm B" not in grid_html
+        # 75.00 (Firm C, now the cheapest of the two shown) should be
+        # highlighted; 100.00 (Firm A) should not carry the lowest-cell class.
+        assert re.search(r'lowest-cell">\s*75\.00', grid_html)
+        assert not re.search(r'lowest-cell">\s*100\.00', grid_html)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_supplier_filter_applies_to_package_view_too():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Filter Package Test", ["A-1"])
+        firm_a = _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+        firm_b = _quote(client, tender_id, "Firm B", {item_ids[0]: 50})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?view=package&suppliers={firm_a}")
+        assert resp.status_code == 200
+        grid_html = _grid_table_html(resp.text)
+        assert "Firm A" in grid_html
+        assert "Firm B" not in grid_html
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_explicit_empty_selection_shows_message_instead_of_falling_back_to_all():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Empty Selection Test", ["A-1"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?view=item&suppliers_filter=1")
+        assert resp.status_code == 200
+        assert "No suppliers selected" in resp.text
+        # The grid itself renders no rate table when nothing's selected -
+        # "Firm A" still legitimately appears in the checkbox list above it.
+        grid_html = _grid_table_html(resp.text)
+        assert "<table>" not in grid_html
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_official_comparative_statement_export_ignores_supplier_filter():
+    """The official CS.xlsx-shaped export never takes a `suppliers` param
+    and must always include everyone, regardless of what's selected on the
+    All Quotes tab - the split this feature is built around."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Official Export Unaffected", ["A-1"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+        _quote(client, tender_id, "Firm B", {item_ids[0]: 50})
+
+        resp = client.get(f"/tenders/{tender_id}/export")
+        assert resp.status_code == 200
+        wb = load_workbook(BytesIO(resp.content))
+        ws = wb.active
+        all_values = {cell.value for row in ws.iter_rows() for cell in row}
+        assert "Firm A" in all_values
+        assert "Firm B" in all_values
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_working_comparison_export_only_includes_selected_suppliers():
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Working Comparison Export Test", ["A-1"])
+        firm_a = _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+        _quote(client, tender_id, "Firm B", {item_ids[0]: 50})
+
+        resp = client.get(f"/tenders/{tender_id}/export-working-comparison?view=item&suppliers={firm_a}")
+        assert resp.status_code == 200
+        wb = load_workbook(BytesIO(resp.content))
+        ws = wb.active
+        assert ws.title == "Working Comparison"
+        all_values = {cell.value for row in ws.iter_rows() for cell in row}
+        assert "Firm A" in all_values
+        assert "Firm B" not in all_values
+        assert any(v and "WORKING COMPARISON" in str(v) for v in all_values)
+        assert any(v and "Not the official Comparative Statement" in str(v) for v in all_values)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_working_comparison_export_rejects_empty_selection():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Working Comparison Empty Test", ["A-1"])
+        _quote(client, tender_id, "Firm A", {item_ids[0]: 100})
+
+        resp = client.get(f"/tenders/{tender_id}/export-working-comparison?view=item&suppliers=999999")
+        assert resp.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_lowest_n_quick_select_links_render_when_enough_suppliers():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Lowest N Test", ["A-1"])
+        for i in range(4):
+            _quote(client, tender_id, f"Firm {i}", {item_ids[0]: 100 + i})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary")
+        assert resp.status_code == 200
+        assert "Lowest 3 overall" in resp.text
+        # Only 4 suppliers total, so "Lowest 5"/"Lowest 10" shouldn't appear.
+        assert "Lowest 5 overall" not in resp.text
+        assert "Lowest 10 overall" not in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_bundle_card_has_use_these_suppliers_link():
+    client, engine = _make_client()
+    try:
+        tender_id, item_ids = _tender_with_items(client, engine, "Bundle Shortcut Test", ["A-1", "A-2"])
+        firm_a = _quote(client, tender_id, "Firm A", {item_ids[0]: 10})
+        firm_b = _quote(client, tender_id, "Firm B", {item_ids[1]: 20})
+
+        resp = client.get(f"/tenders/{tender_id}/comparative-summary?bundle_sizes=2")
+        assert resp.status_code == 200
+        assert "Use these suppliers in All Quotes" in resp.text
+        assert f"suppliers={firm_a}" in resp.text
+        assert f"suppliers={firm_b}" in resp.text
+    finally:
+        app.dependency_overrides.clear()

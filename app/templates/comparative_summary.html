@@ -81,6 +81,10 @@
       {% if b.approximate %} &middot; approximate{% endif %}
     </p>
     <p class="muted" style="margin:0.6rem 0 0;font-size:0.8rem">{{ b.supplier_names|join(', ') }}</p>
+    <p style="margin:0.6rem 0 0;font-size:0.8rem">
+      <a href="/tenders/{{ tender.id }}/comparative-summary?view={{ view }}{% for sid in b.supplier_ids %}&suppliers={{ sid }}{% endfor %}#tab-quotes"
+         onclick="event.stopPropagation()">Use these suppliers in All Quotes &rarr;</a>
+    </p>
   </div>
   {% endfor %}
 </div>
@@ -252,6 +256,38 @@
 </div>
 
 <div id="tab-quotes" class="tab-panel" style="display:none">
+
+<div class="card">
+  <h3 style="margin-top:0">Compare selected suppliers</h3>
+  <p class="muted" style="margin-top:0">
+    By default every supplier who quoted is shown below. Narrow it down to
+    compare a shortlist - the grid and its "Working Comparison" download
+    reflect your selection; the official Comparative Statement above always
+    includes everyone, untouched by this.
+  </p>
+  <p class="muted" style="margin:0 0 0.75rem">
+    Quick pick:
+    <a href="/tenders/{{ tender.id }}/comparative-summary?view={{ view }}#tab-quotes">All ({{ quoting_suppliers|length }})</a>
+    {% for n, ids in lowest_n_options %}
+    &middot; <a href="/tenders/{{ tender.id }}/comparative-summary?view={{ view }}{% for sid in ids %}&suppliers={{ sid }}{% endfor %}#tab-quotes">Lowest {{ n }} overall</a>
+    {% endfor %}
+  </p>
+  <form method="get" action="/tenders/{{ tender.id }}/comparative-summary#tab-quotes">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="package_limit" value="{{ package_limit }}">
+    <input type="hidden" name="bundle_sizes" value="{{ bundle_sizes_csv }}">
+    <input type="hidden" name="suppliers_filter" value="1">
+    <div style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-bottom:0.75rem">
+      {% for s in quoting_suppliers %}
+      <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.88rem;font-weight:normal;margin:0">
+        <input type="checkbox" name="suppliers" value="{{ s.id }}" style="width:auto" {{ 'checked' if s.id in selected_supplier_ids else '' }}>
+        {{ s.name }}
+      </label>
+      {% endfor %}
+    </div>
+    <button type="submit">Apply selection</button>
+  </form>
+</div>
 
 {% set cs_view_base_url = "/tenders/" ~ tender.id ~ "/comparative-summary" %}
 {% include "_comparative_summary_grid.html" %}

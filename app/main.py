@@ -5,17 +5,17 @@ import tempfile
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from .award_engine import build_purchase_proposal, resolve_awarded_items, validate_override
 from .business_rules import get_business_rules
-from .cs_engine import build_comparative_statement, compute_bundle_lineup
+from .cs_engine import build_comparative_statement, compute_bundle_lineup, compute_item_result
 from .custom_fields import (
     SUGGESTED_CS_SIGNATURE_FIELDS,
     create_custom_field,
@@ -58,6 +58,7 @@ from .excel_io import (
     export_purchase_proposal_xlsx,
     export_rfq_item_list_xlsx,
     export_supplier_list_xlsx,
+    export_working_comparison_xlsx,
     get_or_create_department,
     get_or_create_item_master,
     get_or_create_supplier,
@@ -726,6 +727,55 @@ def export_package_cs(tender_id: int, session: Session = Depends(get_session)):
     )
 
 
+@app.get("/tenders/{tender_id}/export-working-comparison")
+def export_working_comparison(
+    tender_id: int,
+    view: str = "item",
+    suppliers: List[int] = Query([]),
+    session: Session = Depends(get_session),
+):
+    """A user-narrowed shortlist comparison (e.g. "lowest 5 overall", or one
+    Sourcing Options bundle's members) - deliberately NOT the official
+    Comparative Statement, which always includes every supplier and is
+    untouched by this route (see export_cs/export_package_cs above)."""
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    cs = build_comparative_statement(session, tender_id)
+    quoting_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
+    selected_ids = {sid for sid in suppliers if sid in cs.suppliers_by_id} if suppliers else {s.id for s in quoting_suppliers}
+    selected_suppliers = [s for s in quoting_suppliers if s.id in selected_ids]
+    if not selected_suppliers:
+        raise HTTPException(400, "No suppliers selected")
+
+    items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
+
+    if view == "package":
+        filtered_package_totals = [p for p in cs.package_totals if p.supplier_id in selected_ids]
+        content = export_working_comparison_xlsx(
+            tender, items, selected_suppliers, "package", package_totals=filtered_package_totals
+        )
+    else:
+        item_ids = [i.id for i in items]
+        quotes = session.exec(select(Quote).where(Quote.item_id.in_(item_ids))).all() if item_ids else []
+        quotes_by_item: dict = {}
+        for q in quotes:
+            quotes_by_item.setdefault(q.item_id, []).append(q)
+        item_results = [
+            compute_item_result(item, [q for q in quotes_by_item.get(item.id, []) if q.supplier_id in selected_ids])
+            for item in items
+        ]
+        content = export_working_comparison_xlsx(tender, items, selected_suppliers, "item", item_results=item_results)
+
+    filename = f"working-comparison-tender-{tender_id}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/tenders/{tender_id}/items")
 def add_item(
     tender_id: int,
@@ -973,6 +1023,8 @@ def comparative_summary_view(
     view: str = "item",
     package_limit: str = "",
     bundle_sizes: str = "",
+    suppliers: List[int] = Query([]),
+    suppliers_filter: str = "",
     session: Session = Depends(get_session),
 ):
     tender = session.get(Tender, tender_id)
@@ -1027,8 +1079,6 @@ def comparative_summary_view(
     # needed before drafting the Purchase Proposal is available right here.
     items = session.exec(select(Item).where(Item.tender_id == tender_id).order_by(Item.ser)).all()
     quoting_suppliers = sorted(cs.suppliers_by_id.values(), key=lambda s: s.name)
-    grid_lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in cs.item_results}
-    grid_tied_by_item_id = {r.item.id: r.tied_supplier_ids for r in cs.item_results}
     full_rate_matrix = {(q.item_id, q.supplier_id): q.rate for q in quotes}
 
     # Analysis panel: coverage stats + "Sourcing Options" - the cheapest
@@ -1038,7 +1088,6 @@ def comparative_summary_view(
     items_unresolved_count = sum(1 for r in cs.item_results if r.lowest_supplier_id is None)
     tied_item_count = sum(1 for r in cs.item_results if r.is_tied)
     full_bidders = [p for p in cs.package_totals if p.fully_quoted]
-    tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
 
     quotes_by_item: dict = {}
     for q in quotes:
@@ -1046,6 +1095,46 @@ def comparative_summary_view(
     requested_sizes = _parse_bundle_sizes(bundle_sizes, len(quoting_suppliers))
     bundles = compute_bundle_lineup(items, quotes_by_item, cs.suppliers_by_id, tender.tax_percent, requested_sizes)
     bundle_sizes_csv = ",".join(str(n) for n in requested_sizes)
+
+    # "All Quotes" supplier narrowing (working comparison, NOT the official
+    # CS - that always exports every supplier untouched, see export_cs/
+    # export_package_cs above). No `suppliers` param at all = everyone, the
+    # unfiltered default. `suppliers_filter` is a sentinel the checkbox form
+    # always submits, so an explicit "everything unchecked" (suppliers=[])
+    # is distinguishable from a fresh page load with no filter applied yet.
+    if suppliers:
+        selected_supplier_ids = {sid for sid in suppliers if sid in cs.suppliers_by_id}
+    elif suppliers_filter:
+        selected_supplier_ids = set()
+    else:
+        selected_supplier_ids = {s.id for s in quoting_suppliers}
+    no_suppliers_selected = not selected_supplier_ids
+    grid_suppliers = [s for s in quoting_suppliers if s.id in selected_supplier_ids]
+    # Carries the active selection along the grid's own internal navigation
+    # (item/package toggle, package Top-N paging) so switching those doesn't
+    # silently reset back to "everyone" - only built when a filter is
+    # actually active this request, to keep the default URLs plain.
+    selection_qs = "".join(f"&suppliers={sid}" for sid in sorted(selected_supplier_ids)) if (suppliers or suppliers_filter) else ""
+
+    working_item_results = [
+        compute_item_result(item, [q for q in quotes_by_item.get(item.id, []) if q.supplier_id in selected_supplier_ids])
+        for item in items
+    ]
+    grid_lowest_by_item_id = {r.item.id: r.lowest_supplier_id for r in working_item_results}
+    grid_tied_by_item_id = {r.item.id: r.tied_supplier_ids for r in working_item_results}
+
+    filtered_package_totals = [p for p in cs.package_totals if p.supplier_id in selected_supplier_ids]
+    working_tied_package_supplier_ids = _tied_package_supplier_ids(filtered_package_totals)
+
+    # "Lowest N overall" quick-select shortcuts - ranked the same way as
+    # PackageTotal already sorts (cheapest fully-quoted first, then
+    # cheapest partial), so "lowest 5" means the 5 suppliers whose own
+    # package total is cheapest, not the 5 most-often-cheapest-per-item
+    # (that's a different lens, already covered by the leaderboard).
+    package_ranked_ids = [p.supplier_id for p in cs.package_totals]
+    lowest_n_options = [
+        (n, package_ranked_ids[:n]) for n in (3, 5, 10) if n < len(quoting_suppliers)
+    ]
 
     locked = tender.status not in (TenderStatus.draft, TenderStatus.proposal_generated)
     return templates.TemplateResponse(
@@ -1057,17 +1146,24 @@ def comparative_summary_view(
             "locked": locked,
             "items": items,
             "quoting_suppliers": quoting_suppliers,
+            "grid_suppliers": grid_suppliers,
+            "selected_supplier_ids": selected_supplier_ids,
+            "no_suppliers_selected": no_suppliers_selected,
+            "supplier_selection_enabled": True,
+            "selection_qs": selection_qs,
+            "lowest_n_options": lowest_n_options,
             "full_rate_matrix": full_rate_matrix,
             "lowest_by_item_id": grid_lowest_by_item_id,
             "tied_by_item_id": grid_tied_by_item_id,
             "view": "package" if view == "package" else "item",
-            "package_totals": _package_limit_slice(cs.package_totals, package_limit),
-            "package_totals_total_count": len(cs.package_totals),
+            "package_limit": package_limit,
+            "package_totals": _package_limit_slice(filtered_package_totals, package_limit),
+            "package_totals_total_count": len(filtered_package_totals),
+            "tied_package_supplier_ids": working_tied_package_supplier_ids,
             "lowest_count_leaderboard": cs.lowest_count_leaderboard,
             "full_bidders": full_bidders,
             "items_unresolved_count": items_unresolved_count,
             "tied_item_count": tied_item_count,
-            "tied_package_supplier_ids": tied_package_supplier_ids,
             "bundles": bundles,
             "bundle_sizes_csv": bundle_sizes_csv,
         },

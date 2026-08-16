@@ -1,22 +1,26 @@
 {% set supplier_qs = ('&supplier_id=' ~ selected_supplier.id) if selected_supplier is defined and selected_supplier else '' %}
+{% set grid_suppliers = grid_suppliers if grid_suppliers is defined else quoting_suppliers %}
+{% set selection_qs = selection_qs if selection_qs is defined else '' %}
 <h2>All quotes so far &mdash; comparative summary</h2>
 <div class="card">
   <div class="row-form" style="gap:1.5rem">
     <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
       <input type="radio" name="cs_view" value="item" style="width:auto" {{ 'checked' if view != 'package' else '' }}
-             onchange="location.href='{{ cs_view_base_url }}?view=item{{ supplier_qs }}#tab-quotes'">
+             onchange="location.href='{{ cs_view_base_url }}?view=item{{ supplier_qs }}{{ selection_qs }}#tab-quotes'">
       Non-package (cheapest item per row)
     </label>
     <label style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.9rem;color:inherit">
       <input type="radio" name="cs_view" value="package" style="width:auto" {{ 'checked' if view == 'package' else '' }}
-             onchange="location.href='{{ cs_view_base_url }}?view=package{{ supplier_qs }}#tab-quotes'">
+             onchange="location.href='{{ cs_view_base_url }}?view=package{{ supplier_qs }}{{ selection_qs }}#tab-quotes'">
       Package (lowest total from one supplier)
     </label>
   </div>
 </div>
 
 <div class="card" style="overflow-x:auto">
-  {% if view == 'package' %}
+  {% if no_suppliers_selected is defined and no_suppliers_selected %}
+  <p class="empty">No suppliers selected - pick at least one in the panel above, or click "All" to reset.</p>
+  {% elif view == 'package' %}
     <p class="muted" style="margin-top:0">Ranks each supplier's total across every item on this RFQ - only a supplier who quoted everything can win the whole package. This doesn't award anything; it's a comparison to help decide.</p>
     {% if tied_package_supplier_ids is defined and tied_package_supplier_ids|length > 1 %}
     <div class="card notice-exists" style="margin-bottom:1rem">
@@ -29,9 +33,9 @@
     <p class="muted" style="margin-top:0">
       Showing {{ package_totals|length }} of {{ total_count }} -
       {% for n in [5, 10, 25] %}
-        {% if n < total_count %}<a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit={{ n }}#tab-quotes">Top {{ n }}</a> &middot; {% endif %}
+        {% if n < total_count %}<a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}{{ selection_qs }}&package_limit={{ n }}#tab-quotes">Top {{ n }}</a> &middot; {% endif %}
       {% endfor %}
-      <a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}&package_limit=all#tab-quotes">All {{ total_count }}</a>
+      <a href="{{ cs_view_base_url }}?view=package{{ supplier_qs }}{{ selection_qs }}&package_limit=all#tab-quotes">All {{ total_count }}</a>
     </p>
     {% endif %}
     <table>
@@ -59,16 +63,19 @@
       </tbody>
     </table>
     <p><a class="btn" href="/tenders/{{ tender.id }}/export-package">Download Comparative Statement</a></p>
+    {% if supplier_selection_enabled is defined and supplier_selection_enabled %}
+    <p><a class="btn btn-secondary" href="/tenders/{{ tender.id }}/export-working-comparison?view=package{% for s in grid_suppliers %}&suppliers={{ s.id }}{% endfor %}">Download Working Comparison (selected suppliers)</a></p>
+    {% endif %}
     {% else %}
     <p class="empty">No quotes recorded yet - pick a supplier and enter their rates on <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>.</p>
     {% endif %}
   {% else %}
-    {% if items and quoting_suppliers %}
+    {% if items and grid_suppliers %}
     <table>
       <thead>
         <tr>
           <th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th>
-          {% for s in quoting_suppliers %}
+          {% for s in grid_suppliers %}
           <th>{{ s.name }}</th>
           {% endfor %}
         </tr>
@@ -83,7 +90,7 @@
             {% if tied_by_item_id is defined and (tied_by_item_id.get(item.id, [])|length) > 1 %}<span class="badge badge-tie">TIE</span>{% endif %}
           </td>
           <td class="num">{{ item.qty }}</td>
-          {% for s in quoting_suppliers %}
+          {% for s in grid_suppliers %}
           {% set rate = full_rate_matrix.get((item.id, s.id)) %}
           {% set is_lowest = (tied_by_item_id.get(item.id, []) if tied_by_item_id is defined else [lowest_by_item_id.get(item.id)]) %}
           <td class="num {{ 'lowest-cell' if s.id in is_lowest else '' }}">
@@ -95,6 +102,9 @@
       </tbody>
     </table>
     <p><a class="btn" href="/tenders/{{ tender.id }}/export">Download Comparative Statement</a></p>
+    {% if supplier_selection_enabled is defined and supplier_selection_enabled %}
+    <p><a class="btn btn-secondary" href="/tenders/{{ tender.id }}/export-working-comparison?view=item{% for s in grid_suppliers %}&suppliers={{ s.id }}{% endfor %}">Download Working Comparison (selected suppliers)</a></p>
+    {% endif %}
     {% else %}
     <p class="empty">No quotes recorded yet - pick a supplier and enter their rates on <a href="/tenders/{{ tender.id }}/quote-entry">Quote Entry</a>.</p>
     {% endif %}

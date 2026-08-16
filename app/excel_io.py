@@ -13,7 +13,7 @@ Expected shape (see docs/data-model.md and CS.xlsx):
 import re
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -24,7 +24,7 @@ from .models import Department, DocumentLabels, Item, ItemMaster, Quote, Supplie
 
 if TYPE_CHECKING:
     from .award_engine import PurchaseProposal
-    from .cs_engine import ComparativeStatement
+    from .cs_engine import ComparativeStatement, ItemResult, PackageTotal
 
 _TAX_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(GST|PST)", re.IGNORECASE)
 _NQ_VALUES = {"NQ", "-", ""}
@@ -639,6 +639,163 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, c
     ws.column_dimensions["C"].width = 36
     ws.column_dimensions["D"].width = 10
     ws.column_dimensions["E"].width = 8
+    for col in range(rate_start_col, last_col + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def export_working_comparison_xlsx(
+    tender: Tender,
+    items: List[Item],
+    selected_suppliers: List[Supplier],
+    view: str,
+    item_results: Optional[List["ItemResult"]] = None,
+    package_totals: Optional[List["PackageTotal"]] = None,
+) -> bytes:
+    """A lightweight, user-narrowed comparison scoped to a picked subset of
+    suppliers (e.g. "lowest 5 overall", or one Sourcing Options bundle's
+    members) - a working shortlist for internal review, NOT the official
+    signed Comparative Statement. Deliberately shaped differently from
+    export_cs_xlsx/export_package_cs_xlsx: no signature block (nothing here
+    is meant to be signed/filed), no re-import support, and a banner that
+    says plainly it isn't the official document, so it can't be mistaken
+    for one further down the approval chain."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Working Comparison"
+    bold = Font(bold=True)
+    header_align = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    banner_align = Alignment(horizontal="center", vertical="center")
+    lowest_fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+
+    suppliers_by_id = {s.id: s for s in selected_suppliers}
+    n = len(selected_suppliers)
+    rate_start_col = 5  # after Ser/Part No/Description/Qty
+    if view == "package":
+        last_col = max(rate_start_col + n - 1, 6)
+    else:
+        lowest_col = rate_start_col + n
+        last_col = lowest_col + 2
+
+    title_cell = ws.cell(row=1, column=1, value="WORKING COMPARISON - SELECTED SUPPLIERS ONLY")
+    title_cell.font = Font(bold=True, size=11, color="C0392B")
+    title_cell.alignment = banner_align
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+
+    subtitle_cell = ws.cell(
+        row=2, column=1,
+        value="Not the official Comparative Statement - a working shortlist for internal review.",
+    )
+    subtitle_cell.font = Font(italic=True, size=9)
+    subtitle_cell.alignment = banner_align
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
+
+    inquiry_cell = ws.cell(row=3, column=1, value=tender.inquiry_no)
+    inquiry_cell.font = Font(bold=True, size=10)
+    inquiry_cell.alignment = banner_align
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=last_col)
+
+    suppliers_cell = ws.cell(row=4, column=1, value="Suppliers: " + ", ".join(s.name for s in selected_suppliers))
+    suppliers_cell.font = Font(size=9)
+    suppliers_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=last_col)
+
+    header_row = 6
+    for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "Qty")]:
+        cell = ws.cell(row=header_row, column=col, value=label)
+        cell.font = bold
+        cell.alignment = header_align
+    for i, s in enumerate(selected_suppliers):
+        cell = ws.cell(row=header_row, column=rate_start_col + i, value=s.name)
+        cell.font = bold
+        cell.alignment = header_align
+
+    if view == "package":
+        row = header_row + 1
+        for item in items:
+            ws.cell(row=row, column=1, value=item.ser)
+            ws.cell(row=row, column=2, value=item.item_master.part_no)
+            ws.cell(row=row, column=3, value=item.item_master.description)
+            ws.cell(row=row, column=4, value=item.qty)
+            for i, s in enumerate(selected_suppliers):
+                rate = next((q.rate for q in item.quotes if q.supplier_id == s.id), None)
+                ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+            row += 1
+
+        row += 2
+        tax_label = tender.tax_type.value
+        heading_cell = ws.cell(row=row, column=1, value="PACKAGE TOTALS (selected suppliers only)")
+        heading_cell.font = bold
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
+        row += 1
+        for col, label in [(1, "Firm"), (3, "Items Quoted"), (4, "Store Value"), (5, tax_label), (6, "Contract Value"), (7, "Eligible")]:
+            ws.cell(row=row, column=col, value=label).font = bold
+        row += 1
+        lowest_marked = False
+        for p in (package_totals or []):
+            name_cell = ws.cell(row=row, column=1, value=p.supplier_name)
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+            ws.cell(row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
+            ws.cell(row=row, column=4, value=p.store_value)
+            ws.cell(row=row, column=5, value=p.tax_amount)
+            ws.cell(row=row, column=6, value=p.contract_value)
+            ws.cell(row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
+            if p.fully_quoted and not lowest_marked:
+                for c in range(1, 8):
+                    ws.cell(row=row, column=c).fill = lowest_fill
+                name_cell.font = bold
+                lowest_marked = True
+            row += 1
+    else:
+        ws.cell(row=header_row, column=lowest_col, value="Lowest Firm").font = bold
+        ws.cell(row=header_row, column=lowest_col + 1, value="Rate Rs.").font = bold
+        ws.cell(row=header_row, column=lowest_col + 2, value="Total Value").font = bold
+        for col in (lowest_col, lowest_col + 1, lowest_col + 2):
+            ws.cell(row=header_row, column=col).alignment = header_align
+
+        row = header_row + 1
+        for r in (item_results or []):
+            item = r.item
+            ws.cell(row=row, column=1, value=item.ser)
+            ws.cell(row=row, column=2, value=item.item_master.part_no)
+            ws.cell(row=row, column=3, value=item.item_master.description)
+            ws.cell(row=row, column=4, value=item.qty)
+            for i, s in enumerate(selected_suppliers):
+                rate = next((q.rate for q in item.quotes if q.supplier_id == s.id), None)
+                ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+            lowest_name = suppliers_by_id[r.lowest_supplier_id].name if r.lowest_supplier_id else "NQ"
+            ws.cell(row=row, column=lowest_col, value=lowest_name)
+            ws.cell(row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
+            ws.cell(row=row, column=lowest_col + 2, value=r.total_value)
+            row += 1
+
+        row += 2
+        tax_percent = tender.tax_percent
+        tax_label = tender.tax_type.value
+        total_store = sum(r.total_value for r in (item_results or []))
+        tax_amount = total_store * tax_percent / 100
+        right_align = Alignment(horizontal="right", vertical="center")
+
+        def _total_row(label: str, value: float) -> None:
+            nonlocal row
+            cell = ws.cell(row=row, column=1, value=label)
+            cell.font = bold
+            cell.alignment = right_align
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=lowest_col + 1)
+            ws.cell(row=row, column=lowest_col + 2, value=value)
+            row += 1
+
+        _total_row(f"Total Amount Excl {tax_percent:g}% {tax_label} (Rs)", total_store)
+        _total_row(f"{tax_percent:g}% {tax_label} (Rs)", tax_amount)
+        _total_row(f"Total Amount Incl {tax_percent:g}% {tax_label} (Rs)", total_store + tax_amount)
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 36
+    ws.column_dimensions["D"].width = 8
     for col in range(rate_start_col, last_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = 18
 
