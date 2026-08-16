@@ -91,6 +91,21 @@ class SupplierLowestCount:
 
 
 @dataclass
+class BundleItemAssignment:
+    """Which of a bundle's members would supply one item, and at what
+    price - the cheapest among just that bundle's members who quoted it
+    (deterministic tie-break: lowest supplier_id, same convention as
+    ItemResult). supplier_id/name/rate are None when nobody in the bundle
+    quoted this item at all (it's outside the bundle's coverage)."""
+
+    item: Item
+    supplier_id: Optional[int]
+    supplier_name: Optional[str]
+    rate: Optional[float]
+    total_value: float
+
+
+@dataclass
 class SupplierBundle:
     """The cheapest combination of exactly `bundle_size` suppliers that
     covers the most items - coverage maximized first, cost minimized
@@ -113,6 +128,7 @@ class SupplierBundle:
     tax_amount: float
     contract_value: float
     approximate: bool  # True if found via the greedy fallback, not exhaustive search
+    items: List[BundleItemAssignment] = field(default_factory=list)  # per-item breakdown for the winning combo
 
 
 @dataclass
@@ -334,6 +350,39 @@ def _greedy_bundle(
     return combo, covered, store_value
 
 
+def _bundle_item_assignments(
+    items: List[Item],
+    combo: Tuple[int, ...],
+    rates: Dict[int, Dict[int, float]],
+    suppliers_by_id: Dict[int, Supplier],
+) -> List[BundleItemAssignment]:
+    """Per-item breakdown for one specific (already-chosen) combo - only
+    computed once, for the winning combination, not during the search
+    itself (that only needs the aggregate coverage/cost, computed by
+    _evaluate_bundle)."""
+    combo_set = set(combo)
+    assignments = []
+    for item in items:
+        applicable = {sid: rate for sid, rate in rates.get(item.id, {}).items() if sid in combo_set}
+        if applicable:
+            winning_sid = min(applicable, key=lambda sid: (applicable[sid], sid))
+            rate = applicable[winning_sid]
+            assignments.append(
+                BundleItemAssignment(
+                    item=item,
+                    supplier_id=winning_sid,
+                    supplier_name=suppliers_by_id[winning_sid].name,
+                    rate=rate,
+                    total_value=item.qty * rate,
+                )
+            )
+        else:
+            assignments.append(
+                BundleItemAssignment(item=item, supplier_id=None, supplier_name=None, rate=None, total_value=0.0)
+            )
+    return assignments
+
+
 def compute_best_bundle(
     items: List[Item],
     quotes_by_item: Dict[int, List[Quote]],
@@ -392,6 +441,7 @@ def compute_best_bundle(
         tax_amount=tax_amount,
         contract_value=best_value + tax_amount,
         approximate=approximate,
+        items=_bundle_item_assignments(items, best_combo, rates, suppliers_by_id),
     )
 
 

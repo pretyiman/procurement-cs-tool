@@ -1037,7 +1037,7 @@ def comparative_summary_view(
     # who individually cover everything - see cs_engine.compute_best_bundle).
     items_unresolved_count = sum(1 for r in cs.item_results if r.lowest_supplier_id is None)
     tied_item_count = sum(1 for r in cs.item_results if r.is_tied)
-    full_bidders_count = sum(1 for p in cs.package_totals if p.fully_quoted)
+    full_bidders = [p for p in cs.package_totals if p.fully_quoted]
     tied_package_supplier_ids = _tied_package_supplier_ids(cs.package_totals)
 
     quotes_by_item: dict = {}
@@ -1064,7 +1064,7 @@ def comparative_summary_view(
             "package_totals": _package_limit_slice(cs.package_totals, package_limit),
             "package_totals_total_count": len(cs.package_totals),
             "lowest_count_leaderboard": cs.lowest_count_leaderboard,
-            "full_bidders_count": full_bidders_count,
+            "full_bidders": full_bidders,
             "items_unresolved_count": items_unresolved_count,
             "tied_item_count": tied_item_count,
             "tied_package_supplier_ids": tied_package_supplier_ids,

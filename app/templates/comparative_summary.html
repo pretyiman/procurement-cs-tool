@@ -16,7 +16,13 @@
 <div class="stat-grid">
   <div class="stat-card"><div class="value">{{ items|length }}</div><div class="label">Items</div></div>
   <div class="stat-card"><div class="value">{{ quoting_suppliers|length }}</div><div class="label">Suppliers</div></div>
-  <div class="stat-card"><div class="value">{{ full_bidders_count }}</div><div class="label" title="Suppliers who quoted every item on this RFQ">Full bidders</div></div>
+  {% if full_bidders %}
+  <div class="stat-card stat-card-clickable" onclick="showAnalysisDetail('detail-full-bidders')" title="Click to see who">
+    <div class="value">{{ full_bidders|length }}</div><div class="label">Full bidders</div>
+  </div>
+  {% else %}
+  <div class="stat-card"><div class="value">0</div><div class="label" title="Suppliers who quoted every item on this RFQ">Full bidders</div></div>
+  {% endif %}
   <div class="stat-card"><div class="value">{{ items_unresolved_count }}</div><div class="label">Unresolved (NQ by all)</div></div>
   <div class="stat-card"><div class="value">{{ tied_item_count }}</div><div class="label">Tied items</div></div>
 </div>
@@ -49,7 +55,8 @@
 {% set best_bundle = bundles|selectattr('fully_covered')|selectattr('contract_value', 'equalto', best_value)|first if best_value is not none else None %}
 <div class="bundle-row">
   {% for b in bundles %}
-  <div class="bundle-card {{ 'bundle-card-best' if best_bundle and b.bundle_size == best_bundle.bundle_size else '' }}">
+  <div class="bundle-card stat-card-clickable {{ 'bundle-card-best' if best_bundle and b.bundle_size == best_bundle.bundle_size else '' }}"
+       onclick="showAnalysisDetail('detail-bundle-{{ b.bundle_size }}')" title="Click to see the item-by-item breakdown">
     {% if best_bundle and b.bundle_size == best_bundle.bundle_size %}
     <span class="badge">BEST VALUE</span>
     {% elif best_bundle and b.fully_covered and b.contract_value == best_bundle.contract_value %}
@@ -73,6 +80,72 @@
 {% else %}
 <p class="empty">No quotes yet, or none of the requested bundle sizes are achievable with the suppliers who've quoted so far.</p>
 {% endif %}
+
+<div id="analysis-detail-area">
+  {% if full_bidders %}
+  <div id="detail-full-bidders" class="analysis-detail-panel card" style="display:none">
+    <button type="button" class="btn-secondary" style="float:right;padding:0.3rem 0.7rem;font-size:0.85rem" onclick="hideAnalysisDetail()">Close</button>
+    <h3 style="margin-top:0">Full bidders - quoted every item on this RFQ</h3>
+    <table>
+      <thead><tr><th>Supplier</th><th class="num">Store Value</th><th class="num">{{ tender.tax_type.value }}</th><th class="num">Contract Value</th></tr></thead>
+      <tbody>
+        {% for p in full_bidders %}
+        <tr>
+          <td>{{ p.supplier_name }}</td>
+          <td class="num">{{ '%.2f'|format(p.store_value) }}</td>
+          <td class="num">{{ '%.2f'|format(p.tax_amount) }}</td>
+          <td class="num">{{ '%.2f'|format(p.contract_value) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="margin:0.5rem 0 0">Each row is what it would cost to award this whole RFQ to that one supplier alone - see the "1 Supplier" Sourcing Option above for the cheapest of these.</p>
+  </div>
+  {% endif %}
+  {% for b in bundles %}
+  <div id="detail-bundle-{{ b.bundle_size }}" class="analysis-detail-panel card" style="display:none;overflow-x:auto">
+    <button type="button" class="btn-secondary" style="float:right;padding:0.3rem 0.7rem;font-size:0.85rem" onclick="hideAnalysisDetail()">Close</button>
+    <h3 style="margin-top:0">{{ b.bundle_size }} Supplier{{ 's' if b.bundle_size != 1 else '' }} breakdown</h3>
+    <p class="muted" style="margin-top:0">{{ b.supplier_names|join(', ') }}</p>
+    <table>
+      <thead>
+        <tr><th>Ser</th><th>Part No</th><th>Description</th><th class="num">Qty</th><th>Supplier</th><th class="num">Rate</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for a in b.items %}
+        <tr>
+          <td>{{ a.item.ser }}</td>
+          <td>{{ a.item.item_master.part_no }}</td>
+          <td>{{ a.item.item_master.description }}</td>
+          <td class="num">{{ a.item.qty }}</td>
+          {% if a.supplier_name %}
+          <td>{{ a.supplier_name }}</td>
+          <td class="num">{{ '%.2f'|format(a.rate) }}</td>
+          <td class="num">{{ '%.2f'|format(a.total_value) }}</td>
+          {% else %}
+          <td colspan="3"><span class="nq">not covered by this bundle</span></td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+  function showAnalysisDetail(id) {
+    document.querySelectorAll('.analysis-detail-panel').forEach(function (el) { el.style.display = 'none'; });
+    var el = document.getElementById(id);
+    if (el) {
+      el.style.display = '';
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+  function hideAnalysisDetail() {
+    document.querySelectorAll('.analysis-detail-panel').forEach(function (el) { el.style.display = 'none'; });
+  }
+</script>
 
 <details style="margin-bottom:1.5rem">
   <summary class="muted" style="cursor:pointer">Per-item breakdown: who's cheapest, and how often</summary>

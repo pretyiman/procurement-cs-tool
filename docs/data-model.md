@@ -244,7 +244,26 @@ every firm in the approved snapshot to have one of these -
   `MAX_BUNDLE_BRUTE_FORCE_COMBINATIONS` (200,000) past which it falls back
   to a greedy (not-necessarily-optimal) approximation - flagged
   `approximate=True` when that happens. The cheapest fully-covering bundle
-  across the shown sizes is marked "BEST VALUE" in the UI.
+  across the shown sizes is marked "BEST VALUE" in the UI - when a larger
+  bundle ties that same value (an extra member who never actually
+  undercuts anyone), only the smallest tied size gets "BEST VALUE"; larger
+  ties get a muted "Same value, N is enough" note instead
+  (`bundle.bundle_size` compared, not raw `contract_value` equality, since
+  float equality on cost alone would flag every tied size).
+  `SupplierBundle.items` (`BundleItemAssignment`, computed once per winning
+  combo via `_bundle_item_assignments()`, not during the search) gives the
+  item-by-item detail - which member supplies each item and at what rate,
+  or `supplier_id=None`/`rate=None` for items outside that bundle's
+  coverage (rendered as "not covered by this bundle"). On the Comparative
+  Summary page, the "Full bidders" stat card and every bundle card are
+  click-to-reveal: clicking shows that card's detail table (full-bidder
+  list, or a bundle's per-item breakdown) in a shared
+  `#analysis-detail-area`, positioned right after the bundle-card row and
+  above the collapsed "Per-item breakdown" leaderboard. All panels are
+  server-rendered upfront (consistent with the project's no-AJAX
+  architecture) - vanilla JS (`showAnalysisDetail`/`hideAnalysisDetail` in
+  `comparative_summary.html`) only toggles `display:none`, accordion-style
+  (opening one hides any other), with a Close button per panel.
 - **Package total tie** - same idea, for the "lowest total from one
   supplier" ranking (`compute_package_totals`): the sort key includes
   `supplier_id` as a final tie-break so ordering is deterministic (not

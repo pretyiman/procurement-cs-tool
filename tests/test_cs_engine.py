@@ -400,3 +400,42 @@ def test_bundle_greedy_fallback_still_returns_a_valid_answer():
         # must be at least as good as it - never cheaper than the actual
         # best possible answer.
         assert bundle.store_value >= 40
+
+
+def test_bundle_item_breakdown_includes_covered_and_uncovered_items():
+    with _fresh_session() as session:
+        _make_tender_with_items_and_quotes(
+            session,
+            1,
+            {
+                1: {"A": 10},
+                2: {"A": 10},
+                3: {"B": 10},
+                4: {"B": 10},
+            },
+        )
+        cs = build_comparative_statement(session, 1)
+        items, quotes_by_item = _quotes_by_item(session, 1)
+        a_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "A")
+        b_id = next(s.id for s in cs.suppliers_by_id.values() if s.name == "B")
+
+        bundle = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 2)
+        assert set(bundle.supplier_ids) == {a_id, b_id}
+        assert len(bundle.items) == 4  # every item on the tender, covered or not
+
+        by_ser = {a.item.ser: a for a in bundle.items}
+        assert by_ser[1].supplier_name == "A"
+        assert by_ser[1].rate == pytest.approx(10)
+        assert by_ser[3].supplier_name == "B"
+        assert by_ser[3].rate == pytest.approx(10)
+
+        # Neither A nor B alone covers everything (no third, fully-quoting
+        # supplier here) - a size-1 bundle necessarily leaves 2 items
+        # unassigned, shown as such rather than silently dropped.
+        bundle1 = compute_best_bundle(items, quotes_by_item, cs.suppliers_by_id, 0, 1)
+        by_ser1 = {a.item.ser: a for a in bundle1.items}
+        uncovered_sers = {ser for ser, a in by_ser1.items() if a.supplier_id is None}
+        assert len(uncovered_sers) == 2
+        for ser in uncovered_sers:
+            assert by_ser1[ser].rate is None
+            assert by_ser1[ser].total_value == 0.0

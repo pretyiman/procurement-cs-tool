@@ -159,7 +159,15 @@ app/
                                            # see cs_engine.compute_best_bundle) with
                                            # the per-item lowest-count leaderboard
                                            # collapsed as secondary detail - in-app
-                                           # only, Excel export untouched
+                                           # only, Excel export untouched. "Full
+                                           # bidders" stat card + every bundle card
+                                           # are click-to-reveal (vanilla JS, no
+                                           # AJAX): shows that card's detail table
+                                           # (full-bidder list, or a bundle's
+                                           # item-by-item breakdown incl. items it
+                                           # doesn't cover) in a shared
+                                           # #analysis-detail-area above the
+                                           # collapsed leaderboard, accordion-style
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA
