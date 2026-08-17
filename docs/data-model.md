@@ -116,6 +116,31 @@ Editable via `/settings/cs-labels` instead of being hardcoded strings in
 these as a required `labels` argument, so a role/title change never
 needs a code change.
 
+### LockSettings (singleton settings row, always id=1)
+| field | type | notes |
+|---|---|---|
+| id | int, PK | always 1 - `lock.get_lock_settings()` get-or-creates this row |
+| passcode_hash | text, nullable | SHA-256 of the passcode; NULL = the lock is disabled (default) |
+
+Editable via `/settings/lock`. This is an *optional local convenience
+lock*, not an access-control system - the app has no user accounts at
+all, so there's nothing to authenticate against beyond "does this person
+know the passcode." Whether the app is currently gated is a plain
+in-memory flag (`app/lock.py`'s `_unlocked_this_session`, not a column
+here and not a signed cookie) that resets to locked every process
+restart if a passcode is set - fine for a single local desktop process,
+not meant to survive multiple workers. `main.py`'s `lock_gate` HTTP
+middleware redirects every request to `/lock` except `/lock` and
+`/lock/unlock` themselves while gated; it's a no-op for the default
+(`passcode_hash is NULL`) case, so nobody who hasn't opted in via
+Settings is ever affected. Setting/changing a passcode never locks out
+the admin who just typed it (only the *next* time the lock is actually
+engaged - the sidebar Lock button, or the next app launch, does that) -
+an earlier version of this got that wrong and bounced the admin's own
+"Saved" confirmation straight to the lock screen; `set_passcode()`
+explicitly re-unlocks the current session after every save, including a
+clear.
+
 ### CustomFieldGroup (multiple rows - a department's own tag preset)
 | field | type | notes |
 |---|---|---|
@@ -382,6 +407,26 @@ every firm in the approved snapshot to have one of these -
   tender exists. This is what makes Inc/Dec% meaningful without manual
   LPR entry every time - see `get_last_purchase_rate` in
   `app/lpr_history.py`.
+- **Insights** (`/insights`, `main.py`'s `insights` route) - a read-only
+  analytics page, entirely derived, no new writes. Scoped to *awarded*
+  tenders only (not proposal-generated/-approved ones), since it's meant
+  to answer "how did procurement actually go so far," not mix in
+  still-open decisions:
+  - Awarded value total / avg bidders per RFQ / awarded value by firm -
+    all straight sums/averages over each awarded tender's frozen
+    `ProposalSnapshot` (`grand_contract_value`, `participating_firms_count`,
+    each `ProposalSnapshotFirmGroup.contract_value`) - cheap, no
+    recomputation.
+  - Savings vs Last Purchase Rate / the rate-movement table - both walk
+    every `ProposalSnapshotItem` with a non-null frozen `lpr`, comparing
+    it to the frozen awarded `rate`.
+  - Single-source item count is the one figure that can't come from the
+    frozen snapshot alone (it only kept the *winner*, not how many
+    suppliers quoted at all) - this one re-derives live, per awarded
+    tender, via `build_comparative_statement()` + a `Quote` count per
+    item. Safe/cheap here specifically because an awarded tender's quotes
+    never change again (locked at `proposal_approved`), unlike using live
+    data for anything still in progress.
 
 ## First-launch demo seed (`app/seed_demo_data.py`)
 

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Insights - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Insights</h1>
+<p class="muted">Derived from the RFQs already awarded in this workspace - nothing new is recorded here.</p>
+
+{% if rfq_count == 0 %}
+<p class="empty">No awarded RFQs yet - Insights fills in once at least one RFQ reaches Awarded status.</p>
+{% else %}
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="value">{{ '{:,.2f}'.format(awarded_value_total) }}</div>
+    <div class="label">Awarded value across {{ rfq_count }} RFQ{{ 's' if rfq_count != 1 else '' }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="value" style="color:{{ 'var(--c-ok)' if lpr_savings_total >= 0 else 'var(--c-bad)' }}">{{ '{:,.2f}'.format(lpr_savings_total) }}</div>
+    <div class="label">{{ 'Saved' if lpr_savings_total >= 0 else 'Over' }} vs Last Purchase Rate</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ '%.1f'|format(firms_count_avg) }}</div>
+    <div class="label">Avg bidders per RFQ</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{ single_source_count }}</div>
+    <div class="label">Single-source items</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:1.5rem;align-items:start">
+  <div class="card">
+    <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Awarded value by firm</div>
+    {% if value_by_firm %}
+    {% set max_value = value_by_firm[0][1] %}
+    <div style="display:flex;flex-direction:column;gap:11px">
+      {% for name, value in value_by_firm %}
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:150px;flex:none;font-size:0.82rem;color:var(--color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ name }}</div>
+        <div style="flex:1;height:8px;border-radius:4px;background:color-mix(in srgb, var(--color-text) 8%, transparent);overflow:hidden"><div style="height:100%;width:{{ (100 * value / max_value)|round(0,'floor')|int }}%;border-radius:4px;background:var(--color-accent)"></div></div>
+        <div style="width:110px;text-align:right;font-size:0.85rem;font-variant-numeric:tabular-nums">{{ '{:,.2f}'.format(value) }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No data.</p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="overflow-x:auto">
+    <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Rate movement vs last purchase</div>
+    {% if rate_rows %}
+    <table>
+      <thead><tr><th>Item</th><th class="num">LPR</th><th class="num">Awarded</th><th class="num">Change</th></tr></thead>
+      <tbody>
+        {% for r in rate_rows %}
+        <tr>
+          <td>{{ r.description }}</td>
+          <td class="num">{{ '{:,.2f}'.format(r.lpr) }}</td>
+          <td class="num">{{ '{:,.2f}'.format(r.rate) }}</td>
+          <td class="num" style="color:{{ 'var(--c-ok)' if r.change_pct <= 0 else 'var(--c-bad)' }}">{{ '%+.1f'|format(r.change_pct) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No items with a recorded Last Purchase Rate yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

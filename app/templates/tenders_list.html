@@ -6,20 +6,31 @@
 <div class="card">
   <h2 style="margin-top:0">Start an RFQ</h2>
   <div class="row-form">
-    <a class="btn" href="/tenders/new">+ Create RFQ manually</a>
+    <a class="btn" href="/tenders/new">{{ icon('plus', 14) }}Create RFQ manually</a>
   </div>
-  <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0">
+  <hr style="border:none;border-top:1px solid var(--color-divider);margin:1.25rem 0">
   <form method="post" action="/tenders/import-ui" enctype="multipart/form-data" class="row-form">
     <div class="field">
       <label for="file">Or import a Comparative Statement (.xlsx)</label>
       <input type="file" id="file" name="file" accept=".xlsx,.xlsm" required>
     </div>
-    <button type="submit">Import</button>
+    <button type="submit">{{ icon('upload', 14) }}Import</button>
   </form>
 </div>
 
 <h2>Existing RFQs</h2>
+<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1.25rem">
+  {% for key, label in [('', 'All'), ('draft', 'Draft'), ('proposal_generated', 'Generated'), ('proposal_approved', 'Approved'), ('awarded', 'Awarded')] %}
+  {% set count = total_count if not key else status_counts.get(key, 0) %}
+  <a href="/tenders{{ '?status=' ~ key if key else '' }}" style="display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:8px;text-decoration:none;font-size:0.82rem;font-family:var(--font-heading);
+      {% if active_status == key %}color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);{% else %}color:var(--color-text);background:var(--color-surface);box-shadow:var(--shadow-sm);{% endif %}">
+    {{ label }} &middot; {{ count }}
+  </a>
+  {% endfor %}
+</div>
+
 {% if rows %}
+<div class="card" style="overflow-x:auto">
 <table class="tender-list">
   <thead><tr><th>Inquiry No.</th><th>Tax</th><th>Status</th><th>Publish Date</th><th>Opening Date</th></tr></thead>
   <tbody>
@@ -27,14 +38,15 @@
     <tr>
       <td><a href="{{ row.landing_url }}">{{ row.tender.inquiry_no }}</a></td>
       <td>{{ row.tender.tax_type.value }} {{ row.tender.tax_percent }}%</td>
-      <td>{{ row.tender.status.value }}</td>
+      <td><span class="tag {{ 'tag-ok' if row.tender.status.value == 'awarded' else 'tag-accent' }}">{{ row.tender.status.value.replace('_', ' ') }}</span></td>
       <td>{{ row.tender.issue_date.strftime('%d %b %Y') if row.tender.issue_date else '-' }}</td>
       <td>{{ row.tender.opening_date.strftime('%d %b %Y') if row.tender.opening_date else '-' }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
-<p class="empty">No RFQs yet. Create one or import an existing Comparative Statement above.</p>
+<p class="empty">No RFQs match this filter.</p>
 {% endif %}
 {% endblock %}

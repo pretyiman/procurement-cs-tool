@@ -1,0 +1,15 @@
+{% set settings_pages = [
+  ("/settings/business-rules", "percent", "Business rules"),
+  ("/settings/cs-labels", "labels", "CS labels"),
+  ("/settings/custom-fields", "custom-fields", "Custom fields"),
+  ("/settings/templates", "templates", "Document templates"),
+  ("/settings/lock", "lock", "Lock"),
+] %}
+<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1.5rem">
+  {% for url, ic, label in settings_pages %}
+  <a href="{{ url }}" style="display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;text-decoration:none;font-size:0.82rem;font-family:var(--font-heading);
+      {% if request.url.path == url %}color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);{% else %}color:var(--color-text);background:var(--color-surface);box-shadow:var(--shadow-sm);{% endif %}">
+    {{ icon(ic, 15) }}{{ label }}
+  </a>
+  {% endfor %}
+</div>

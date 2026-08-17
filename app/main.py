@@ -32,6 +32,8 @@ from .custom_fields import (
 from .db import create_db_and_tables, engine, get_session
 from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
+from .icons import icon
+from .lock import engage_lock, get_lock_settings, is_unlocked, set_passcode, try_unlock
 from .lpr_history import get_last_purchase_rate
 from .paths import resource_path
 from .proposal_snapshot import (
@@ -82,6 +84,7 @@ from .models import (
 app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
 templates = Jinja2Templates(directory=str(resource_path("templates")))
+templates.env.globals["icon"] = icon
 
 
 @app.on_event("startup")
@@ -89,6 +92,35 @@ def on_startup() -> None:
     create_db_and_tables()
     with Session(engine) as session:
         seed_demo_data_if_empty(session)
+
+
+_LOCK_EXEMPT_PATHS = {"/lock", "/lock/unlock"}
+
+
+@app.middleware("http")
+async def lock_gate(request: Request, call_next):
+    """Redirects every request to /lock while the optional local passcode
+    is set and not yet unlocked this session - see app/lock.py. A no-op
+    (every request passes straight through) unless an admin has actually
+    configured a passcode; that's the default, so this never affects
+    anyone who hasn't opted in.
+
+    Deliberately goes through app.dependency_overrides for get_session
+    (the same lookup FastAPI's own Depends() does) rather than opening
+    Session(engine) directly - middleware runs outside the DI system, so
+    a direct Session(engine) would silently ignore the in-memory test
+    engine every test's TestClient overrides get_session with, and hit
+    the real on-disk database instead."""
+    if request.url.path not in _LOCK_EXEMPT_PATHS:
+        session_factory = app.dependency_overrides.get(get_session, get_session)
+        session_gen = session_factory()
+        session = next(session_gen)
+        try:
+            if not is_unlocked(session):
+                return RedirectResponse(f"/lock?next={quote(request.url.path)}", status_code=303)
+        finally:
+            session_gen.close()
+    return await call_next(request)
 
 
 def _json_for_script(data) -> str:
@@ -184,7 +216,7 @@ def health():
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, session: Session = Depends(get_session)):
+def dashboard(request: Request, view: str = "queue", session: Session = Depends(get_session)):
     tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
     status_counts = {"draft": 0, "proposal_generated": 0, "proposal_approved": 0, "awarded": 0}
     for t in tenders:
@@ -195,15 +227,100 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
     recent_tenders = tenders[:8]
     recent_rows = [{"tender": t, "landing_url": _phase_landing_url(session, t)} for t in recent_tenders]
 
+    # "Needs you next" - unfinished RFQs first (draft/generated/approved
+    # ahead of awarded), most recently touched first. Value is only ever
+    # read from an already-frozen ProposalSnapshot (cheap) - never
+    # recomputed live here, so the dashboard stays fast regardless of how
+    # many RFQs exist.
+    status_priority = {"draft": 0, "proposal_generated": 1, "proposal_approved": 2, "awarded": 3}
+    queue_source = sorted(tenders, key=lambda t: status_priority.get(t.status.value, 0))[:8]
+    queue = []
+    for t in queue_source:
+        snapshot = get_snapshot(session, t.id)
+        queue.append(
+            {
+                "tender": t,
+                "landing_url": _phase_landing_url(session, t),
+                "item_count": len(t.items),
+                "contract_value": snapshot.grand_contract_value if snapshot else None,
+            }
+        )
+
+    awarded_value_total = sum(
+        (get_snapshot(session, t.id).grand_contract_value or 0)
+        for t in tenders
+        if t.status == TenderStatus.awarded and get_snapshot(session, t.id) is not None
+    )
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
+            "view": "metrics" if view == "metrics" else "queue",
             "tender_count": len(tenders),
             "status_counts": status_counts,
             "item_count": item_count,
             "supplier_count": supplier_count,
             "recent_rows": recent_rows,
+            "queue": queue,
+            "awarded_value_total": awarded_value_total,
+        },
+    )
+
+
+@app.get("/insights", response_class=HTMLResponse)
+def insights(request: Request, session: Session = Depends(get_session)):
+    """Purely derived from RFQs already awarded - nothing new is recorded
+    here, no new DB fields/writes. Scoped to *awarded* tenders only (not
+    every proposal-generated one) since this is meant to answer "how did
+    procurement actually go so far," not mix in still-open decisions."""
+    awarded_tenders = session.exec(select(Tender).where(Tender.status == TenderStatus.awarded)).all()
+    snapshots = [s for s in (get_snapshot(session, t.id) for t in awarded_tenders) if s is not None]
+
+    awarded_value_total = sum(s.grand_contract_value for s in snapshots)
+    firms_count_avg = (
+        sum(s.participating_firms_count for s in snapshots) / len(snapshots) if snapshots else 0
+    )
+
+    value_by_firm: dict = {}
+    rate_rows = []
+    lpr_savings_total = 0.0
+    for s in snapshots:
+        for group in s.firm_groups:
+            value_by_firm[group.supplier_name] = value_by_firm.get(group.supplier_name, 0.0) + group.contract_value
+            for item in group.items:
+                if item.lpr is not None and item.lpr != 0:
+                    change_pct = (item.rate - item.lpr) / item.lpr * 100
+                    lpr_savings_total += (item.lpr - item.rate) * item.qty
+                    rate_rows.append(
+                        {"description": item.description, "lpr": item.lpr, "rate": item.rate, "change_pct": change_pct}
+                    )
+    rate_rows.sort(key=lambda r: r["change_pct"])
+    value_by_firm_sorted = sorted(value_by_firm.items(), key=lambda kv: kv[1], reverse=True)
+
+    # Single-source count needs the live per-item quote count (the frozen
+    # snapshot only kept the *winner*, not how many suppliers quoted) -
+    # cheap here since it's scoped to already-awarded tenders only, whose
+    # quotes never change again once finalized (locked at proposal_approved).
+    single_source_count = 0
+    for t in awarded_tenders:
+        cs = build_comparative_statement(session, t.id)
+        for r in cs.item_results:
+            quotes = session.exec(select(Quote).where(Quote.item_id == r.item.id)).all()
+            if sum(1 for q in quotes if q.rate is not None) == 1:
+                single_source_count += 1
+
+    return templates.TemplateResponse(
+        request,
+        "insights.html",
+        {
+            "rfq_count": len(snapshots),
+            "awarded_value_total": awarded_value_total,
+            "lpr_savings_total": lpr_savings_total,
+            "firms_count_avg": firms_count_avg,
+            "single_source_count": single_source_count,
+            "value_by_firm": value_by_firm_sorted,
+            "rate_rows": rate_rows,
         },
     )
 
@@ -457,10 +574,19 @@ def update_supplier(
 
 
 @app.get("/tenders", response_class=HTMLResponse)
-def tenders_list(request: Request, session: Session = Depends(get_session)):
+def tenders_list(request: Request, status: str = "", session: Session = Depends(get_session)):
     tenders = session.exec(select(Tender).order_by(Tender.id.desc())).all()
+    status_counts = {"draft": 0, "proposal_generated": 0, "proposal_approved": 0, "awarded": 0}
+    for t in tenders:
+        status_counts[t.status.value] = status_counts.get(t.status.value, 0) + 1
+    if status.strip() and status in status_counts:
+        tenders = [t for t in tenders if t.status.value == status]
     rows = [{"tender": t, "landing_url": _phase_landing_url(session, t)} for t in tenders]
-    return templates.TemplateResponse(request, "tenders_list.html", {"rows": rows})
+    return templates.TemplateResponse(
+        request,
+        "tenders_list.html",
+        {"rows": rows, "status_counts": status_counts, "total_count": sum(status_counts.values()), "active_status": status},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1480,6 +1606,46 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
 # Settings: policy numbers used in generated documents (Contract Award),
 # editable here instead of being hardcoded constants in docx_export.py
 # ---------------------------------------------------------------------------
+
+
+@app.get("/lock", response_class=HTMLResponse)
+def lock_screen(request: Request, next: str = "/", error: str = "", session: Session = Depends(get_session)):
+    if is_unlocked(session):
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse(request, "lock.html", {"next": next or "/", "error": error})
+
+
+@app.post("/lock/unlock")
+def lock_unlock(passcode: str = Form(...), next: str = Form("/"), session: Session = Depends(get_session)):
+    if try_unlock(session, passcode):
+        return RedirectResponse(next or "/", status_code=303)
+    return RedirectResponse(f"/lock?next={quote(next or '/')}&error=1", status_code=303)
+
+
+@app.post("/lock/engage")
+def lock_engage():
+    engage_lock()
+    return RedirectResponse("/lock", status_code=303)
+
+
+@app.get("/settings/lock", response_class=HTMLResponse)
+def lock_settings_form(request: Request, saved: str = "", session: Session = Depends(get_session)):
+    settings = get_lock_settings(session)
+    return templates.TemplateResponse(
+        request, "settings_lock.html", {"lock_enabled": settings.passcode_hash is not None, "saved": bool(saved)}
+    )
+
+
+@app.post("/settings/lock")
+def update_lock_settings(passcode: str = Form(""), clear: str = Form(""), session: Session = Depends(get_session)):
+    # A blank passcode with no explicit "clear" means "no change" (Save
+    # clicked without typing anything) - only "Turn lock off" (which sends
+    # clear=1) or an actual new passcode ever touches the stored value.
+    if clear:
+        set_passcode(session, "")
+    elif passcode.strip():
+        set_passcode(session, passcode)
+    return RedirectResponse("/settings/lock?saved=1", status_code=303)
 
 
 @app.get("/settings/business-rules", response_class=HTMLResponse)

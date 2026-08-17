@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Locked - Procurement CS Tool</title>
+  <script>
+    (function () {
+      var theme = localStorage.getItem('theme');
+      if (!theme) theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <style>
+    :root {
+      --color-bg: #161826; --color-surface: #232532; --color-text: #e9e9ed; --color-accent: #9184d9;
+      --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+      --font-heading: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --radius-md: 8px;
+      --c-bad: oklch(0.68 0.16 25); --c-bad-bg: oklch(0.68 0.16 25 / 0.15);
+    }
+    :root[data-theme="light"] {
+      --color-bg: #f7f8fc; --color-surface: #ffffff; --color-text: #292b31; --color-accent: #5d5294;
+      --color-divider: color-mix(in srgb, #292b31 13%, transparent);
+      --c-bad: oklch(0.55 0.16 25); --c-bad-bg: oklch(0.55 0.16 25 / 0.10);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-body); background: var(--color-bg); color: var(--color-text);
+      display: grid; place-items: center; padding: 40px; font-size: 15px;
+    }
+    .panel { width: 340px; display: flex; flex-direction: column; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand .mark {
+      width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--color-accent);
+      display: grid; place-items: center; color: var(--color-accent); font-weight: 600; font-size: 14px;
+    }
+    .brand .label { font-family: var(--font-heading); font-weight: 500; font-size: 17px; }
+    .desc { font-size: 13px; color: color-mix(in srgb, var(--color-text) 55%, transparent); line-height: 1.6; }
+    label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+    input[type=password] {
+      width: 100%; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 14px;
+      color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-divider);
+      border-radius: var(--radius-md);
+    }
+    input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 0; }
+    button {
+      width: 100%; font-family: var(--font-heading); font-weight: 500; font-size: 14px;
+      color: var(--color-accent); background: transparent; border: 1px solid var(--color-accent);
+      padding: 0.6rem 1rem; border-radius: var(--radius-md); cursor: pointer;
+    }
+    button:hover { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+    .foot { font-size: 11px; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+    .error { background: var(--c-bad-bg); border: 1px solid color-mix(in srgb, var(--c-bad) 45%, transparent); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="brand">
+      <span class="mark">CS</span>
+      <span class="label">Procurement CS Tool</span>
+    </div>
+    <div class="desc">This machine's workspace is locked. Data stays local - no account, no server.</div>
+    {% if error %}
+    <div class="error">Incorrect passcode - try again.</div>
+    {% endif %}
+    <form method="post" action="/lock/unlock">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label for="passcode">Local passcode</label>
+      <input type="password" id="passcode" name="passcode" autofocus required style="margin-bottom:16px">
+      <button type="submit">Unlock workspace</button>
+    </form>
+    <div class="foot">Optional local lock - the app itself has no user accounts.</div>
+  </div>
+</body>
+</html>

@@ -2,15 +2,13 @@
 {% block title %}Settings - Procurement CS Tool{% endblock %}
 {% block content %}
 <h1>Custom Fields</h1>
-<p class="muted">
-  <a href="/settings/business-rules">Business Rules</a> &middot; <a href="/settings/templates">Document Templates</a> &middot; <a href="/settings/cs-labels">CS Labels</a> &middot; <strong>Custom Fields</strong>
-</p>
+{% include "_settings_nav.html" %}
 <p class="muted">
   Define a name/value text pair here, and it becomes usable as <code>{{ '{{ tag_name }}' }}</code> directly in the Purchase Proposal / Contract Award Word templates - no code change needed. Only for text that's the <strong>same on every document</strong> (a designation, a boilerplate phrase); real per-contract data (rates, firm names, dates, totals) always comes from the actual RFQ automatically and can't be overridden here.
 </p>
 
 {% if error %}
-<div class="card" style="background:#fdecea;border-color:#f1a9a0"><strong>Couldn't save that.</strong> {{ error }}</div>
+<div class="card notice-error"><strong>Couldn't save that.</strong> {{ error }}</div>
 {% endif %}
 {% if saved %}
 <div class="card notice-exists"><strong>Saved.</strong> New documents will use the updated fields.</div>

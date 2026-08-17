@@ -2,9 +2,7 @@
 {% block title %}Settings - Procurement CS Tool{% endblock %}
 {% block content %}
 <h1>CS Title &amp; Signature Labels</h1>
-<p class="muted">
-  <a href="/settings/business-rules">Business Rules</a> &middot; <a href="/settings/templates">Document Templates</a> &middot; <strong>CS Labels</strong> &middot; <a href="/settings/custom-fields">Custom Fields</a>
-</p>
+{% include "_settings_nav.html" %}
 <p class="muted">The title banner and signature-block role names on the Comparative Statement Excel export (both the item-wise and package versions). Change these here instead of editing code - useful for things like a role/title change that doesn't warrant touching the export logic itself.</p>
 
 {% if saved %}

@@ -258,6 +258,21 @@ class DocumentLabels(SQLModel, table=True):
     fmsad_label: str = "FMSAD (XDS)"
 
 
+class LockSettings(SQLModel, table=True):
+    """Singleton settings row (always id=1) for the optional local
+    workspace lock (Settings > Lock, and the sidebar Lock button). This is
+    explicitly NOT real security - a local convenience passcode so the
+    screen isn't left open, matching the app's "no accounts, data stays
+    local" design (see app/lock.py). passcode_hash=None means the lock is
+    disabled (today's behavior, the default) - the app never gates access
+    until an admin sets a passcode here."""
+
+    __tablename__ = "lock_settings"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    passcode_hash: Optional[str] = None
+
+
 class CustomFieldGroup(SQLModel, table=True):
     """A department's own preset of tag values (e.g. Department A's
     initiating-officer name/designation, receiving store/authority - values

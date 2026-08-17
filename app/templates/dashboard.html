@@ -1,21 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Dashboard - Procurement CS Tool{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
+<div style="display:flex;align-items:flex-end;gap:20px;margin-bottom:26px;flex-wrap:wrap">
+  <div>
+    <h1 style="margin-bottom:0">Procurement desk</h1>
+    <div style="font-size:0.85rem;color:var(--muted);margin-top:4px">{{ tender_count }} RFQ{{ 's' if tender_count != 1 else '' }} &middot; local workspace</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="seg" style="display:inline-flex;overflow:hidden;border:1px solid var(--color-divider);border-radius:8px">
+      <a href="/?view=queue" style="display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:0.8rem;text-decoration:none;
+          {% if view != 'metrics' %}color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);{% else %}color:var(--color-text);{% endif %}">{{ icon('list-checks', 14) }}Work queue</a>
+      <a href="/?view=metrics" style="display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:0.8rem;text-decoration:none;border-left:1px solid var(--color-divider);
+          {% if view == 'metrics' %}color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);{% else %}color:var(--color-text);{% endif %}">{{ icon('chart-bar', 14) }}Metrics</a>
+    </div>
+    <a class="btn btn-primary" href="/tenders/new">{{ icon('plus', 14) }}New RFQ</a>
+  </div>
+</div>
 
+{% if view == 'metrics' %}
 <div class="stat-grid">
-  <div class="stat-card"><div class="value">{{ tender_count }}</div><div class="label">RFQs</div></div>
-  <div class="stat-card"><div class="value">{{ status_counts.get('draft', 0) }}</div><div class="label">Draft</div></div>
-  <div class="stat-card"><div class="value">{{ status_counts.get('proposal_generated', 0) }}</div><div class="label">Proposal generated</div></div>
-  <div class="stat-card"><div class="value">{{ status_counts.get('proposal_approved', 0) }}</div><div class="label">Proposal approved</div></div>
-  <div class="stat-card"><div class="value">{{ status_counts.get('awarded', 0) }}</div><div class="label">Awarded</div></div>
-  <div class="stat-card"><div class="value">{{ item_count }}</div><div class="label">Catalog items</div></div>
+  <div class="stat-card"><div class="value">{{ status_counts.get('draft', 0) + status_counts.get('proposal_generated', 0) + status_counts.get('proposal_approved', 0) }}</div><div class="label">Open RFQs</div></div>
+  <div class="stat-card"><div class="value">{{ status_counts.get('proposal_generated', 0) }}</div><div class="label">Awaiting approval</div></div>
+  <div class="stat-card"><div class="value">{{ status_counts.get('proposal_approved', 0) }}</div><div class="label">Contracts to issue</div></div>
+  <div class="stat-card"><div class="value">{{ '{:,.0f}'.format(awarded_value_total) }}</div><div class="label">Awarded value</div></div>
   <div class="stat-card"><div class="value">{{ supplier_count }}</div><div class="label">Suppliers</div></div>
 </div>
 
-<p><a class="btn" href="/tenders/new">+ New RFQ</a> <a class="btn btn-secondary" href="/tenders">View all RFQs</a></p>
+<div class="card">
+  <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:14px">Contract value by stage</div>
+  <div style="display:flex;align-items:flex-end;gap:14px;height:120px">
+    {% set stage_max = [status_counts.get('draft',0), status_counts.get('proposal_generated',0), status_counts.get('proposal_approved',0), status_counts.get('awarded',0), 1]|max %}
+    {% for key, label, color in [('draft','Draft','var(--color-neutral-600)'), ('proposal_generated','Proposal generated','var(--color-accent-400)'), ('proposal_approved','Proposal approved','var(--color-accent)'), ('awarded','Awarded','var(--c-ok)')] %}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%">
+      <div style="font-size:0.8rem">{{ status_counts.get(key, 0) }}</div>
+      <div style="width:100%;max-width:70px;background:{{ color }};border-radius:4px 4px 0 0;height:{{ (100 * status_counts.get(key,0) / stage_max)|round(0,'floor')|int }}%;min-height:4px"></div>
+      <div style="font-size:0.72rem;color:var(--muted);text-align:center">{{ label }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
 
-<h2>Recent RFQs</h2>
 <div class="card">
   {% if recent_rows %}
   <table>
@@ -34,4 +58,64 @@
   <p class="empty">No RFQs yet. <a href="/tenders/new">Create one</a> or import an existing Comparative Statement from the <a href="/tenders">RFQs</a> page.</p>
   {% endif %}
 </div>
+
+{% else %}
+<div style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:22px;align-items:start">
+  <div>
+    <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Needs you next</div>
+    {% if queue %}
+    <div style="display:flex;flex-direction:column;gap:10px">
+      {% for w in queue %}
+      <a href="{{ w.landing_url }}" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:8px;background:var(--color-surface);box-shadow:var(--shadow-sm)">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-family:var(--font-heading);font-size:0.95rem">{{ w.tender.inquiry_no }}</span>
+            <span class="tag tag-accent">{{ w.tender.status.value.replace('_', ' ') }}</span>
+          </div>
+          <div style="font-size:0.78rem;color:var(--muted);margin-top:3px">{{ w.tender.department.name if w.tender.department else 'No department' }} &middot; {{ w.item_count }} item{{ 's' if w.item_count != 1 else '' }}</div>
+        </div>
+        <div style="text-align:right;flex:none">
+          {% if w.contract_value is not none %}
+          <div style="font-size:0.9rem;font-variant-numeric:tabular-nums">{{ '{:,.2f}'.format(w.contract_value) }}</div>
+          <div style="font-size:0.7rem;color:var(--muted)">contract value</div>
+          {% endif %}
+        </div>
+        {{ icon('arrow-right', 15, 'opacity:0.4') }}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No RFQs yet. <a href="/tenders/new">Create one</a> or import an existing Comparative Statement from the <a href="/tenders">RFQs</a> page.</p>
+    {% endif %}
+  </div>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Pipeline</div>
+      {% set pipe_max = [status_counts.get('draft',0), status_counts.get('proposal_generated',0), status_counts.get('proposal_approved',0), status_counts.get('awarded',0), 1]|max %}
+      <div style="display:flex;flex-direction:column;gap:10px">
+        {% for key, label, color in [('draft','Draft','var(--color-neutral-500)'), ('proposal_generated','Proposal generated','var(--color-accent-400)'), ('proposal_approved','Proposal approved','var(--color-accent)'), ('awarded','Awarded','var(--c-ok)')] %}
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:120px;flex:none;font-size:0.78rem;color:var(--muted)">{{ label }}</div>
+          <div style="flex:1;height:7px;border-radius:4px;background:color-mix(in srgb, var(--color-text) 8%, transparent);overflow:hidden"><div style="height:100%;width:{{ (100 * status_counts.get(key,0) / pipe_max)|round(0,'floor')|int }}%;border-radius:4px;background:{{ color }}"></div></div>
+          <div style="width:20px;text-align:right;font-size:0.85rem">{{ status_counts.get(key, 0) }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Catalog</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <a href="/items" style="text-decoration:none;color:inherit">
+          <div style="font-size:1.4rem;font-family:var(--font-heading)">{{ item_count }}</div>
+          <div style="font-size:0.75rem;color:var(--muted)">Catalog items</div>
+        </a>
+        <a href="/suppliers" style="text-decoration:none;color:inherit">
+          <div style="font-size:1.4rem;font-family:var(--font-heading)">{{ supplier_count }}</div>
+          <div style="font-size:0.75rem;color:var(--muted)">Suppliers</div>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

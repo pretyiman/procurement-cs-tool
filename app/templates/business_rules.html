@@ -2,9 +2,7 @@
 {% block title %}Settings - Procurement CS Tool{% endblock %}
 {% block content %}
 <h1>Business Rules</h1>
-<p class="muted">
-  <strong>Business Rules</strong> &middot; <a href="/settings/templates">Document Templates</a> &middot; <a href="/settings/cs-labels">CS Labels</a> &middot; <a href="/settings/custom-fields">Custom Fields</a>
-</p>
+{% include "_settings_nav.html" %}
 <p class="muted">Policy numbers used when generating Contract Award documents - change these here instead of editing code. Takes effect on the next document you generate; already-downloaded documents aren't affected.</p>
 
 {% if saved %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Settings - Procurement CS Tool{% endblock %}
+{% block content %}
+<h1>Lock</h1>
+{% include "_settings_nav.html" %}
+<p class="muted">
+  An optional local passcode - not a real account system (this app has none), just a way to keep the screen from
+  sitting open. Set a passcode and the whole app redirects to a lock screen until it's entered; leave it blank to
+  turn the lock off entirely (today's default). The sidebar "Lock" button re-locks immediately without changing
+  this passcode.
+</p>
+
+{% if saved %}
+<div class="card notice-exists"><strong>Saved.</strong> {% if lock_enabled %}The workspace lock is now on.{% else %}The workspace lock is now off.{% endif %}</div>
+{% endif %}
+
+<div class="card" style="max-width:420px">
+  <form method="post" action="/settings/lock">
+    <div class="field">
+      <label for="passcode">{{ 'Change passcode' if lock_enabled else 'Set a passcode' }}</label>
+      <input type="password" id="passcode" name="passcode" placeholder="{{ 'Leave blank to make no change' if lock_enabled else 'e.g. 1234' }}">
+    </div>
+    <button type="submit">Save</button>
+  </form>
+  {% if lock_enabled %}
+  <form method="post" action="/settings/lock" style="margin-top:0.75rem">
+    <input type="hidden" name="clear" value="1">
+    <button type="submit" class="btn-secondary">Turn lock off</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

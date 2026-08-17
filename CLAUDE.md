@@ -62,7 +62,8 @@ app/
   main.py                # FastAPI app + all routes
   models.py               # DB models: Tender, Supplier, ItemMaster, Item, Quote,
                            # Department, TenderTemplate/TenderTemplateItem,
-                           # BusinessRules, DocumentLabels, CustomField
+                           # BusinessRules, DocumentLabels, CustomField,
+                           # LockSettings (singleton, see lock.py)
   db.py                    # SQLite engine/session (path from paths.user_data_dir())
   seed_demo_data.py         # seed_demo_data_if_empty(), called from main.py's
                              # startup hook right after create_db_and_tables() -
@@ -75,6 +76,22 @@ app/
                              # launch - no manual data entry or file copying.
                              # Item/supplier names are generic/fictional
   paths.py                  # dev-vs-frozen resource/DB path resolution (Phase 11)
+  icons.py                    # inline-SVG icon set for the UI (icon(name) is a
+                               # Jinja global, {{ icon('dashboard') }}) - hand-drawn
+                               # outline icons, NOT the Phosphor icon-font CDN the
+                               # UI redesign reference used, to keep the app fully
+                               # offline (same reasoning as the HTMX decision below)
+  lock.py                       # optional local workspace passcode (Settings >
+                                 # Lock, sidebar Lock button) - explicitly NOT real
+                                 # security (no account system exists), just a
+                                 # convenience screen-lock. In-memory unlock flag
+                                 # (resets on app restart), gated by main.py's
+                                 # lock_gate HTTP middleware, which goes through
+                                 # app.dependency_overrides for get_session (NOT a
+                                 # direct Session(engine)) so it doesn't fight the
+                                 # test suite's isolated in-memory DBs. Disabled
+                                 # (no passcode) is the default - a no-op for
+                                 # everyone who hasn't opted in via Settings
   cs_engine.py                # comparative-statement calculation (pure)
   award_engine.py               # lowest + manual override logic, live Purchase
                                  # Proposal (draft-stage preview only - the
@@ -150,13 +167,55 @@ app/
     pp_template.docx                        # Purchase Proposal - same approach,
                                              # from PP.doc
   templates/
-    base.html                 # sidebar shell (Dashboard/Items/Suppliers/
-                               # Departments/RFQs/Settings) + shared
-                               # search-select JS combobox (supports inline
-                               # "+" quick-create)
-    dashboard.html              # "/" — stat cards + recent tenders, each
-                                 # linking to its phase-appropriate landing
-                                 # page (see _phase_landing_url in main.py)
+    base.html                 # UI shell, rebuilt on the "Nocturne" design
+                               # reference (see "UI redesign" below): a
+                               # collapsible icon-rail sidebar (Dashboard/RFQs/
+                               # Insights/Items/Suppliers/Departments/Templates/
+                               # Settings + Collapse/Lock), a light/dark theme
+                               # toggle (localStorage-persisted, no
+                               # flash-of-wrong-theme), and the full design-token
+                               # CSS (colors/spacing/shadows as CSS custom
+                               # properties, [data-theme="light"] override block)
+                               # underneath every existing class name (.card,
+                               # .stat-grid, .badge, .tab-nav, .search-select...)
+                               # - the point being every OTHER template kept
+                               # working unmodified purely by inheriting the new
+                               # look, since they already styled through these
+                               # shared classes rather than one-off CSS. Also
+                               # still carries the shared search-select JS
+                               # combobox (supports inline "+" quick-create)
+    dashboard.html              # "/" — two views (Work queue / Metrics, a
+                                 # `view` query param): Work queue is a
+                                 # "needs you next" card list (status-sorted,
+                                 # unfinished RFQs first) + a pipeline bar +
+                                 # catalog stat shortcuts; Metrics is stat cards
+                                 # + a contract-value-by-stage bar chart + the
+                                 # original recent-RFQs table. Each queue card's
+                                 # contract value is read from an already-frozen
+                                 # ProposalSnapshot (cheap), never recomputed
+                                 # live, so the dashboard stays fast regardless
+                                 # of RFQ count. Links use the same
+                                 # phase-appropriate landing page as before (see
+                                 # _phase_landing_url in main.py)
+    insights.html                 # "/insights" — NEW, purely derived read-only
+                                   # analytics scoped to *awarded* tenders only
+                                   # (not proposal-generated ones - answers "how
+                                   # did procurement actually go," not mixed
+                                   # with still-open decisions): total awarded
+                                   # value, savings vs Last Purchase Rate, avg
+                                   # bidders/RFQ, single-source item count
+                                   # (needs a live per-item quote-count check
+                                   # since the frozen snapshot only kept the
+                                   # winner, not how many suppliers quoted -
+                                   # cheap here since awarded tenders' quotes
+                                   # never change again), awarded value by firm,
+                                   # and a rate-movement-vs-LPR table. No new
+                                   # DB writes at all
+    lock.html                       # "/lock" — NEW, the standalone passcode
+                                     # screen (deliberately does NOT extend
+                                     # base.html - no sidebar, since every
+                                     # sidebar link would just bounce right back
+                                     # here while locked). See app/lock.py
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
@@ -169,8 +228,23 @@ app/
                                             # signature-block role names
     custom_fields.html                       # "/settings/custom-fields" — admin-
                                               # defined {{ tag }} text fields
-    tenders_list.html                # "/tenders" — list/create/import;
-                                      # each row links to its phase landing
+    settings_lock.html                         # "/settings/lock" — NEW, set/change/
+                                                # clear the optional local passcode
+                                                # (app/lock.py). Blank "Save" is a
+                                                # deliberate no-op (doesn't disable
+                                                # the lock) - only "Turn lock off"
+                                                # (a separate form/flag) actually
+                                                # clears it, and setting/changing a
+                                                # passcode never locks out the admin
+                                                # who just typed it, only future
+                                                # lock engagements
+    _settings_nav.html                           # NEW shared partial - pill nav
+                                                  # across all 5 /settings/* pages
+                                                  # (replaced the old plain-text
+                                                  # breadcrumb line each page had)
+    tenders_list.html                # "/tenders" — list/create/import; status-
+                                      # filter pills with counts; each row links
+                                      # to its phase landing
     tender_new.html                   # "/tenders/new" (+ start from template)
     templates_list.html                 # "/templates" — tender template mgmt
     tender_detail.html                 # "/tenders/{id}" — add item (search-select),
@@ -231,13 +305,18 @@ app/
                                                  # Top-N/tie flagging - included by
                                                  # quote_entry.html and
                                                  # comparative_summary.html
-    _phase_nav.html                               # shared Prev/Next partial across
-                                                   # the 5 lifecycle pages (Items ->
-                                                   # Quote Entry -> Comparative
-                                                   # Summary -> Purchase Proposal ->
-                                                   # Contract Award), included
+    _phase_nav.html                               # shared 5-pill stepper (Items ->
+                                                   # Quotes -> Comparison -> Proposal
+                                                   # -> Contracts) across the 5
+                                                   # lifecycle pages, included
                                                    # additively alongside each page's
-                                                   # own quick-jump links
+                                                   # own quick-jump links. "Done"
+                                                   # per pill is a simple approximation
+                                                   # from tender.status alone (not a
+                                                   # live per-phase completion check
+                                                   # re-queried in all 5 routes) -
+                                                   # items/quotes/comparison read done
+                                                   # once status has left draft, etc.
 tests/
   test_excel_io.py
   test_cs_engine.py
@@ -254,7 +333,34 @@ tests/
   test_number_words.py
   test_quote_entry.py
   test_docx_export.py
+  test_seed_demo_data.py
+  test_insights.py
+  test_lock.py
 ```
+
+## UI redesign (Nocturne)
+
+`base.html` and every page were re-skinned onto a dark-first design
+reference the user generated externally and shared as a local export
+(`UI redesign/` at the repo root - a Nocturne design-system bundle plus a
+`Procurement CS Tool.dc.html` interactive prototype using the design
+tool's own proprietary component/binding syntax, not plain HTML - a
+visual reference to re-implement, not code to copy in). That folder isn't
+committed (large, derived, one-time reference) - if you need to re-check
+the original look in a later session and it's missing, ask the user for
+it rather than reconstructing from memory of this file.
+
+Two genuinely new features came out of that redesign, not just a re-skin:
+Insights (`app/templates/insights.html`, read-only derived analytics) and
+the optional local Lock screen (`app/lock.py`). Everything else - the
+icon-rail sidebar, theme toggle, phase-pill stepper, Dashboard's two
+views, RFQ list filter pills, Settings sub-nav - is presentation only;
+no route's underlying business logic changed. Verified end-to-end
+against the actual packaged `.exe` (not just the dev server): built it,
+launched it with `%LOCALAPPDATA%` pointed at an empty temp dir to
+simulate a genuinely fresh machine, and confirmed the new UI, the
+auto-seeded demo data, and a real Contract Award download all worked
+with zero manual steps.
 
 ## Building the standalone package (Phase 11)
 

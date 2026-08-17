@@ -1,10 +1,10 @@
 {% set phase_order = ["items", "quote_entry", "comparative_summary", "proposal", "contract_award"] %}
 {% set phase_labels = {
   "items": "Items",
-  "quote_entry": "Quote Entry",
-  "comparative_summary": "Comparative Summary",
-  "proposal": "Purchase Proposal",
-  "contract_award": "Contract Award",
+  "quote_entry": "Quotes",
+  "comparative_summary": "Comparison",
+  "proposal": "Proposal",
+  "contract_award": "Contracts",
 } %}
 {% set phase_urls = {
   "items": "/tenders/" ~ tender.id,
@@ -14,8 +14,28 @@
   "contract_award": "/tenders/" ~ tender.id ~ "/contract-award",
 } %}
 {% set idx = phase_order.index(current) %}
-<p class="muted" style="font-size:0.85rem">
-  {% if idx > 0 %}<a href="{{ phase_urls[phase_order[idx - 1]] }}">&larr; {{ phase_labels[phase_order[idx - 1]] }}</a>{% endif %}
-  {% if idx > 0 and idx < (phase_order|length - 1) %} &nbsp;|&nbsp; {% endif %}
-  {% if idx < (phase_order|length - 1) %}<a href="{{ phase_urls[phase_order[idx + 1]] }}">{{ phase_labels[phase_order[idx + 1]] }} &rarr;</a>{% endif %}
-</p>
+{% set status_rank = {"draft": 0, "proposal_generated": 1, "proposal_approved": 2, "awarded": 3} %}
+{% set rank = status_rank.get(tender.status.value, 0) %}
+{# Items/Quotes/Comparison are all reachable pre-proposal (rank 0), so they
+   read "done" once the tender has moved past draft - a simple, honest
+   approximation from tender.status alone rather than re-querying each
+   phase's own completion state (item/quote counts, resolved-items count)
+   in every one of the 5 routes that include this partial. #}
+<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.75rem 0 1.5rem">
+  {% for key in phase_order %}
+  {% set p_idx = loop.index0 %}
+  {% set is_current = key == current %}
+  {% set is_done = (p_idx <= 2 and rank >= 1) or (key == "proposal" and rank >= 2) or (key == "contract_award" and rank >= 3) %}
+  <a href="{{ phase_urls[key] }}" style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;text-decoration:none;font-size:0.85rem;font-family:var(--font-heading);
+      {% if is_current %}background:var(--color-accent-800);color:var(--color-accent-100);
+      {% else %}background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-sm);{% endif %}">
+    {% if is_done and not is_current %}
+      <span style="color:var(--c-ok)">{{ icon('check-circle', 15) }}</span>
+    {% else %}
+      <span style="opacity:0.5">{{ p_idx + 1 }}.</span>
+    {% endif %}
+    {{ phase_labels[key] }}
+  </a>
+  {% if not loop.last %}<span style="align-self:center;opacity:0.3">{{ icon('arrow-right', 13) }}</span>{% endif %}
+  {% endfor %}
+</div>
