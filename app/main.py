@@ -131,18 +131,27 @@ def _json_for_script(data) -> str:
 
 
 def _items_locked(tender: Tender) -> bool:
-    """Once an RFQ has moved past drafting (status) or has actually been
-    published (issue_date has passed), there's no legitimate reason to
-    keep adding/editing/deleting items - suppliers may already be quoting
-    against a fixed list. A blank issue_date means "not yet published"
-    and never locks by date alone - only a real, passed publish date
-    does. No unlock/override exists for v1; start a fresh RFQ if the
-    item list genuinely needs to change after this point."""
-    if tender.status != TenderStatus.draft:
-        return True
-    if tender.issue_date is not None and tender.issue_date <= datetime.date.today():
-        return True
+    """DISABLED per user request (2026-08): items/quotes/dates should be
+    freely editable at any stage for now - not needed today, but this
+    will definitely come back later, so the original restriction is kept
+    below as a comment (not deleted) rather than rewritten from scratch
+    when it's turned back on. To re-enable, restore the commented body
+    and remove the `return False` above it.
+
+    Original behavior: once an RFQ has moved past drafting (status) or
+    has actually been published (issue_date has passed), there's no
+    legitimate reason to keep adding/editing/deleting items - suppliers
+    may already be quoting against a fixed list. A blank issue_date means
+    "not yet published" and never locks by date alone - only a real,
+    passed publish date does. No unlock/override exists for v1; start a
+    fresh RFQ if the item list genuinely needs to change after this
+    point."""
     return False
+    # if tender.status != TenderStatus.draft:
+    #     return True
+    # if tender.issue_date is not None and tender.issue_date <= datetime.date.today():
+    #     return True
+    # return False
 
 
 def _package_limit_slice(package_totals: list, package_limit: str) -> list:

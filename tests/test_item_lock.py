@@ -1,5 +1,6 @@
 import datetime
 
+import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -11,6 +12,14 @@ try:
     from fastapi.testclient import TestClient
 except ImportError:  # pragma: no cover
     TestClient = None
+
+_LOCK_DISABLED_REASON = (
+    "_items_locked() in main.py is disabled per user request (2026-08) - "
+    "items/quotes/dates are freely editable at any stage for now. The "
+    "original restriction is commented out there, not deleted, and these "
+    "tests are skipped rather than deleted for the same reason - un-skip "
+    "them alongside restoring the commented-out body."
+)
 
 
 def _make_client():
@@ -73,6 +82,7 @@ def test_items_editable_when_issue_date_is_in_the_future():
         app.dependency_overrides.clear()
 
 
+@pytest.mark.skip(reason=_LOCK_DISABLED_REASON)
 def test_items_locked_once_issue_date_has_passed():
     client, engine = _make_client()
     try:
@@ -91,6 +101,7 @@ def test_items_locked_once_issue_date_has_passed():
         app.dependency_overrides.clear()
 
 
+@pytest.mark.skip(reason=_LOCK_DISABLED_REASON)
 def test_items_locked_once_status_leaves_draft():
     client, engine = _make_client()
     try:
@@ -156,6 +167,7 @@ def test_blank_issue_date_never_locks_by_date():
         app.dependency_overrides.clear()
 
 
+@pytest.mark.skip(reason=_LOCK_DISABLED_REASON)
 def test_tender_detail_page_shows_lock_banner_when_locked():
     client, engine = _make_client()
     try:

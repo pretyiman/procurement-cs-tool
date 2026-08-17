@@ -530,6 +530,29 @@ same reasoning as round 1.
 
 ---
 
+## Post-MVP round 3 (Nocturne UI redesign; item lock disabled)
+
+Full visual redesign onto a dark-first "Nocturne" reference the user
+generated externally (icon-rail sidebar, theme toggle, phase-pill
+stepper, restyled Dashboard/RFQ-list/Settings) - presentation only, no
+route logic changed; every existing template inherited the look for free
+by already styling through shared CSS classes rather than one-offs. Two
+genuinely new features came out of it: read-only Insights analytics
+(`/insights`, scoped to awarded tenders, derived from frozen
+`ProposalSnapshot` data) and an optional local Lock screen (`app/lock.py`,
+explicitly not real security - the app has no accounts).
+
+**Item lock disabled, by request** (main.py's `_items_locked()`): items,
+quotes, and an RFQ's own publish/opening dates should be freely editable
+at any stage for now - the date/status-based restriction from the
+"Page restructuring + item lock" round above is commented out, not
+removed (it'll come back later), by unconditionally returning `False`
+above the original (now dead) logic. The 3 tests that verified the old
+locked behavior are `@pytest.mark.skip`-marked with a matching reason
+rather than deleted, for the same "will restore later" reasoning.
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles
