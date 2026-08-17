@@ -29,6 +29,35 @@ if TYPE_CHECKING:
 _TAX_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s*(GST|PST)", re.IGNORECASE)
 _NQ_VALUES = {"NQ", "-", ""}
 
+# ASCII control characters (excluding tab/newline/CR, which XML allows) that
+# openpyxl rejects outright - real-world sources are staff pasting text from
+# Word/PDF into free-typed fields (CS Labels, Custom Fields, item/supplier
+# names), which can carry a vertical tab or similar invisible character with
+# it. openpyxl validates on assignment (cell.value = x raises immediately,
+# not at save time), so sanitizing has to happen at every write - _cell()
+# below is a drop-in replacement for ws.cell() that does this once, so a new
+# call site can't reintroduce the bug by writing straight to ws.cell().
+_ILLEGAL_XLSX_CHARACTERS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _cell(ws, row: int, column: int, value=None):
+    if isinstance(value, str):
+        value = _ILLEGAL_XLSX_CHARACTERS_RE.sub("", value)
+    return ws.cell(row=row, column=column, value=value)
+
+
+def _sanitize_workbook_text(wb: Workbook) -> None:
+    """Defense in depth for any cell value that reached a worksheet without
+    going through _cell() above (e.g. openpyxl/pandas internals) - cheap
+    enough to run once per export given this app's worksheet sizes."""
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cleaned = _ILLEGAL_XLSX_CHARACTERS_RE.sub("", cell.value)
+                    if cleaned != cell.value:
+                        cell.value = cleaned
+
 
 def _is_nq(value) -> bool:
     if value is None:
@@ -219,23 +248,24 @@ def _simple_list_workbook(title: str, headers: list, rows: list) -> bytes:
     ws.title = sheet_name
     bold = Font(bold=True)
 
-    title_cell = ws.cell(row=1, column=1, value=title)
+    title_cell = _cell(ws, row=1, column=1, value=title)
     title_cell.font = Font(bold=True, size=13)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
 
     for col, label in enumerate(headers, start=1):
-        cell = ws.cell(row=3, column=col, value=label)
+        cell = _cell(ws, row=3, column=col, value=label)
         cell.font = bold
 
     row_idx = 4
     for row_values in rows:
         for col, value in enumerate(row_values, start=1):
-            ws.cell(row=row_idx, column=col, value=value)
+            _cell(ws, row=row_idx, column=col, value=value)
         row_idx += 1
 
     for col in range(1, len(headers) + 1):
         ws.column_dimensions[get_column_letter(col)].width = 22
 
+    _sanitize_workbook_text(wb)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -299,65 +329,65 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
     banner_align = Alignment(horizontal="center", vertical="center")
     banner_font = Font(bold=True, size=10)
 
-    title_cell = ws.cell(row=1, column=1, value=labels.cs_title)
+    title_cell = _cell(ws, row=1, column=1, value=labels.cs_title)
     title_cell.font = banner_font
     title_cell.alignment = banner_align
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=incdec_col)
 
-    inquiry_cell = ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+    inquiry_cell = _cell(ws, row=2, column=1, value=cs.tender.inquiry_no)
     inquiry_cell.font = banner_font
     inquiry_cell.alignment = banner_align
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=incdec_col)
 
     header_row = 3
     for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "A/U"), (5, "Qty")]:
-        cell = ws.cell(row=header_row, column=col, value=label)
+        cell = _cell(ws, row=header_row, column=col, value=label)
         cell.font = bold
         cell.alignment = header_align
-    ws.cell(
+    _cell(ws, 
         row=header_row,
         column=rate_start_col,
         value=f"Rate Quoted by Firms Excl {cs.tender.tax_percent:g}% {cs.tender.tax_type.value}",
     ).font = bold
-    ws.cell(row=header_row, column=lowest_col, value="Lowest").font = bold
-    ws.cell(row=header_row, column=lpr_col, value="LPR (Rs)").font = bold
-    ws.cell(row=header_row, column=incdec_col, value="Inc/Dec %").font = bold
+    _cell(ws, row=header_row, column=lowest_col, value="Lowest").font = bold
+    _cell(ws, row=header_row, column=lpr_col, value="LPR (Rs)").font = bold
+    _cell(ws, row=header_row, column=incdec_col, value="Inc/Dec %").font = bold
     for col in (rate_start_col, lowest_col, lpr_col, incdec_col):
-        ws.cell(row=header_row, column=col).alignment = header_align
+        _cell(ws, row=header_row, column=col).alignment = header_align
     if n > 1:
         ws.merge_cells(start_row=header_row, start_column=rate_start_col, end_row=header_row, end_column=lowest_col - 1)
     ws.merge_cells(start_row=header_row, start_column=lowest_col, end_row=header_row, end_column=lowest_col + 2)
 
     subheader_row = header_row + 1
     for i, supplier in enumerate(suppliers):
-        cell = ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+        cell = _cell(ws, row=subheader_row, column=rate_start_col + i, value=supplier.name)
         cell.font = bold
         cell.alignment = header_align
-    ws.cell(row=subheader_row, column=lowest_col, value="Firm").font = bold
-    ws.cell(row=subheader_row, column=lowest_col + 1, value="Rate Rs.").font = bold
-    ws.cell(row=subheader_row, column=lowest_col + 2, value="Total Value").font = bold
+    _cell(ws, row=subheader_row, column=lowest_col, value="Firm").font = bold
+    _cell(ws, row=subheader_row, column=lowest_col + 1, value="Rate Rs.").font = bold
+    _cell(ws, row=subheader_row, column=lowest_col + 2, value="Total Value").font = bold
     for col in (lowest_col, lowest_col + 1, lowest_col + 2):
-        ws.cell(row=subheader_row, column=col).alignment = header_align
+        _cell(ws, row=subheader_row, column=col).alignment = header_align
 
     # cs.item_results doesn't carry raw per-supplier rates, so pull them from
     # item.quotes (lazy-loaded via the still-open session) as we go.
     row = subheader_row + 1
     for r in cs.item_results:
         item = r.item
-        ws.cell(row=row, column=1, value=item.ser)
-        ws.cell(row=row, column=2, value=item.item_master.part_no)
-        ws.cell(row=row, column=3, value=item.item_master.description)
-        ws.cell(row=row, column=4, value=item.item_master.default_unit)
-        ws.cell(row=row, column=5, value=item.qty)
+        _cell(ws, row=row, column=1, value=item.ser)
+        _cell(ws, row=row, column=2, value=item.item_master.part_no)
+        _cell(ws, row=row, column=3, value=item.item_master.description)
+        _cell(ws, row=row, column=4, value=item.item_master.default_unit)
+        _cell(ws, row=row, column=5, value=item.qty)
         for i, supplier in enumerate(suppliers):
             rate = next((q.rate for q in item.quotes if q.supplier_id == supplier.id), None)
-            ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+            _cell(ws, row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
         lowest_name = cs.suppliers_by_id[r.lowest_supplier_id].name if r.lowest_supplier_id else "NQ"
-        ws.cell(row=row, column=lowest_col, value=lowest_name)
-        ws.cell(row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
-        ws.cell(row=row, column=lowest_col + 2, value=r.total_value)
-        ws.cell(row=row, column=lpr_col, value=item.lpr if item.lpr is not None else "-")
-        ws.cell(row=row, column=incdec_col, value=f"{r.inc_dec_pct:.2f}" if r.inc_dec_pct is not None else "-")
+        _cell(ws, row=row, column=lowest_col, value=lowest_name)
+        _cell(ws, row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
+        _cell(ws, row=row, column=lowest_col + 2, value=r.total_value)
+        _cell(ws, row=row, column=lpr_col, value=item.lpr if item.lpr is not None else "-")
+        _cell(ws, row=row, column=incdec_col, value=f"{r.inc_dec_pct:.2f}" if r.inc_dec_pct is not None else "-")
         row += 1
 
     tax_label = cs.tender.tax_type.value
@@ -365,7 +395,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
 
     def _total_label_row(label: str, value: float) -> None:
         nonlocal row
-        cell = ws.cell(row=row, column=1, value=label)
+        cell = _cell(ws, row=row, column=1, value=label)
         cell.font = bold
         cell.alignment = right_align
         # Merged right up to the column before the value, so the
@@ -373,7 +403,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
         # the original CS.xlsx (merged A:J there) instead of leaving a
         # big gap between a left-aligned label and a far-right value.
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=lowest_col + 1)
-        ws.cell(row=row, column=lowest_col + 2, value=value)
+        _cell(ws, row=row, column=lowest_col + 2, value=value)
         row += 1
 
     row += 1  # blank spacer row between the item list and the totals
@@ -382,26 +412,26 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
     _total_label_row(f"Total Amount Incl {cs.tender.tax_percent:g}% {tax_label} (Rs)", cs.grand_total.contract_value)
 
     row += 2
-    ws.cell(row=row, column=4, value="SUMMARY").font = bold
+    _cell(ws, row=row, column=4, value="SUMMARY").font = bold
     row += 1
-    ws.cell(row=row, column=4, value="Firm").font = bold
-    ws.cell(row=row, column=6, value="Items").font = bold
-    ws.cell(row=row, column=7, value="Store Value").font = bold
-    ws.cell(row=row, column=8, value=tax_label).font = bold
-    ws.cell(row=row, column=9, value="Contr Value").font = bold
+    _cell(ws, row=row, column=4, value="Firm").font = bold
+    _cell(ws, row=row, column=6, value="Items").font = bold
+    _cell(ws, row=row, column=7, value="Store Value").font = bold
+    _cell(ws, row=row, column=8, value=tax_label).font = bold
+    _cell(ws, row=row, column=9, value="Contr Value").font = bold
     row += 1
     for f in cs.firm_summaries:
-        ws.cell(row=row, column=4, value=f.supplier_name)
-        ws.cell(row=row, column=6, value=f.item_count)
-        ws.cell(row=row, column=7, value=f.store_value)
-        ws.cell(row=row, column=8, value=f.tax_amount)
-        ws.cell(row=row, column=9, value=f.contract_value)
+        _cell(ws, row=row, column=4, value=f.supplier_name)
+        _cell(ws, row=row, column=6, value=f.item_count)
+        _cell(ws, row=row, column=7, value=f.store_value)
+        _cell(ws, row=row, column=8, value=f.tax_amount)
+        _cell(ws, row=row, column=9, value=f.contract_value)
         row += 1
-    ws.cell(row=row, column=4, value="G.Total").font = bold
-    ws.cell(row=row, column=6, value=cs.grand_total.item_count).font = bold
-    ws.cell(row=row, column=7, value=cs.grand_total.store_value).font = bold
-    ws.cell(row=row, column=8, value=cs.grand_total.tax_amount).font = bold
-    ws.cell(row=row, column=9, value=cs.grand_total.contract_value).font = bold
+    _cell(ws, row=row, column=4, value="G.Total").font = bold
+    _cell(ws, row=row, column=6, value=cs.grand_total.item_count).font = bold
+    _cell(ws, row=row, column=7, value=cs.grand_total.store_value).font = bold
+    _cell(ws, row=row, column=8, value=cs.grand_total.tax_amount).font = bold
+    _cell(ws, row=row, column=9, value=cs.grand_total.contract_value).font = bold
 
     # Signature/approval block, matching CS.xlsx's own multi-signatory
     # chain (Prep By -> Checked by -> HEAD QAC -> COUNTERSIGNED -> FMSAD).
@@ -417,10 +447,10 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
     ) -> None:
         bottom_border = Border(bottom=Side(style="thin"))
         for c in range(col_start, col_end + 1):
-            ws.cell(row=line_row, column=c).border = bottom_border
+            _cell(ws, row=line_row, column=c).border = bottom_border
         if col_end > col_start:
             ws.merge_cells(start_row=line_row, start_column=col_start, end_row=line_row, end_column=col_end)
-        label_cell = ws.cell(row=line_row + 1, column=col_start, value=label)
+        label_cell = _cell(ws, row=line_row + 1, column=col_start, value=label)
         label_cell.font = Font(size=9)
         label_cell.alignment = Alignment(horizontal=halign, vertical="center")
         if col_end > col_start:
@@ -431,7 +461,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
             # custom_fields.SUGGESTED_CS_FIELDS. Blank/omitted if
             # that custom field was never set, matching the original
             # layout exactly.
-            designation_cell = ws.cell(row=line_row + 2, column=col_start, value=designation)
+            designation_cell = _cell(ws, row=line_row + 2, column=col_start, value=designation)
             designation_cell.font = Font(size=8, italic=True)
             designation_cell.alignment = Alignment(horizontal=halign, vertical="center")
             if col_end > col_start:
@@ -452,7 +482,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
     )
 
     row += 4
-    sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
+    sig_cell = _cell(ws, row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=incdec_col)
@@ -482,6 +512,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
     ws.column_dimensions[get_column_letter(lpr_col)].width = 11
     ws.column_dimensions[get_column_letter(incdec_col)].width = 10
 
+    _sanitize_workbook_text(wb)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -510,76 +541,76 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, c
     banner_align = Alignment(horizontal="center", vertical="center")
     banner_font = Font(bold=True, size=10)
 
-    title_cell = ws.cell(row=1, column=1, value=f"{labels.cs_title} (PACKAGE BASIS)")
+    title_cell = _cell(ws, row=1, column=1, value=f"{labels.cs_title} (PACKAGE BASIS)")
     title_cell.font = banner_font
     title_cell.alignment = banner_align
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
 
-    inquiry_cell = ws.cell(row=2, column=1, value=cs.tender.inquiry_no)
+    inquiry_cell = _cell(ws, row=2, column=1, value=cs.tender.inquiry_no)
     inquiry_cell.font = banner_font
     inquiry_cell.alignment = banner_align
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
 
     header_row = 3
     for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "A/U"), (5, "Qty")]:
-        cell = ws.cell(row=header_row, column=col, value=label)
+        cell = _cell(ws, row=header_row, column=col, value=label)
         cell.font = bold
         cell.alignment = header_align
-    ws.cell(
+    _cell(ws, 
         row=header_row,
         column=rate_start_col,
         value=f"Rate Quoted by Firms Excl {cs.tender.tax_percent:g}% {cs.tender.tax_type.value}",
     ).font = bold
-    ws.cell(row=header_row, column=rate_start_col).alignment = header_align
+    _cell(ws, row=header_row, column=rate_start_col).alignment = header_align
     if n > 1:
         ws.merge_cells(start_row=header_row, start_column=rate_start_col, end_row=header_row, end_column=last_col)
 
     subheader_row = header_row + 1
     for i, supplier in enumerate(suppliers):
-        cell = ws.cell(row=subheader_row, column=rate_start_col + i, value=supplier.name)
+        cell = _cell(ws, row=subheader_row, column=rate_start_col + i, value=supplier.name)
         cell.font = bold
         cell.alignment = header_align
 
     row = subheader_row + 1
     for r in cs.item_results:
         item = r.item
-        ws.cell(row=row, column=1, value=item.ser)
-        ws.cell(row=row, column=2, value=item.item_master.part_no)
-        ws.cell(row=row, column=3, value=item.item_master.description)
-        ws.cell(row=row, column=4, value=item.item_master.default_unit)
-        ws.cell(row=row, column=5, value=item.qty)
+        _cell(ws, row=row, column=1, value=item.ser)
+        _cell(ws, row=row, column=2, value=item.item_master.part_no)
+        _cell(ws, row=row, column=3, value=item.item_master.description)
+        _cell(ws, row=row, column=4, value=item.item_master.default_unit)
+        _cell(ws, row=row, column=5, value=item.qty)
         for i, supplier in enumerate(suppliers):
             rate = next((q.rate for q in item.quotes if q.supplier_id == supplier.id), None)
-            ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+            _cell(ws, row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
         row += 1
 
     row += 2
     tax_label = cs.tender.tax_type.value
-    heading_cell = ws.cell(row=row, column=1, value="PACKAGE TOTALS - if the entire item list were awarded to one firm")
+    heading_cell = _cell(ws, row=row, column=1, value="PACKAGE TOTALS - if the entire item list were awarded to one firm")
     heading_cell.font = bold
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
     row += 1
 
-    ws.cell(row=row, column=1, value="Firm").font = bold
-    ws.cell(row=row, column=3, value="Items Quoted").font = bold
-    ws.cell(row=row, column=4, value="Store Value").font = bold
-    ws.cell(row=row, column=5, value=tax_label).font = bold
-    ws.cell(row=row, column=6, value="Contract Value").font = bold
-    ws.cell(row=row, column=7, value="Eligible").font = bold
+    _cell(ws, row=row, column=1, value="Firm").font = bold
+    _cell(ws, row=row, column=3, value="Items Quoted").font = bold
+    _cell(ws, row=row, column=4, value="Store Value").font = bold
+    _cell(ws, row=row, column=5, value=tax_label).font = bold
+    _cell(ws, row=row, column=6, value="Contract Value").font = bold
+    _cell(ws, row=row, column=7, value="Eligible").font = bold
     row += 1
 
     lowest_eligible_marked = False
     for p in cs.package_totals:
-        name_cell = ws.cell(row=row, column=1, value=p.supplier_name)
+        name_cell = _cell(ws, row=row, column=1, value=p.supplier_name)
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-        ws.cell(row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
-        ws.cell(row=row, column=4, value=p.store_value)
-        ws.cell(row=row, column=5, value=p.tax_amount)
-        ws.cell(row=row, column=6, value=p.contract_value)
-        ws.cell(row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
+        _cell(ws, row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
+        _cell(ws, row=row, column=4, value=p.store_value)
+        _cell(ws, row=row, column=5, value=p.tax_amount)
+        _cell(ws, row=row, column=6, value=p.contract_value)
+        _cell(ws, row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
         if p.fully_quoted and not lowest_eligible_marked:
             for c in range(1, 8):
-                ws.cell(row=row, column=c).fill = lowest_fill
+                _cell(ws, row=row, column=c).fill = lowest_fill
             name_cell.font = bold
             lowest_eligible_marked = True
         row += 1
@@ -590,16 +621,16 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, c
     ) -> None:
         bottom_border = Border(bottom=Side(style="thin"))
         for c in range(col_start, col_end + 1):
-            ws.cell(row=line_row, column=c).border = bottom_border
+            _cell(ws, row=line_row, column=c).border = bottom_border
         if col_end > col_start:
             ws.merge_cells(start_row=line_row, start_column=col_start, end_row=line_row, end_column=col_end)
-        label_cell = ws.cell(row=line_row + 1, column=col_start, value=label)
+        label_cell = _cell(ws, row=line_row + 1, column=col_start, value=label)
         label_cell.font = Font(size=9)
         label_cell.alignment = Alignment(horizontal=halign, vertical="center")
         if col_end > col_start:
             ws.merge_cells(start_row=line_row + 1, start_column=col_start, end_row=line_row + 1, end_column=col_end)
         if designation:
-            designation_cell = ws.cell(row=line_row + 2, column=col_start, value=designation)
+            designation_cell = _cell(ws, row=line_row + 2, column=col_start, value=designation)
             designation_cell.font = Font(size=8, italic=True)
             designation_cell.alignment = Alignment(horizontal=halign, vertical="center")
             if col_end > col_start:
@@ -620,7 +651,7 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, c
     )
 
     row += 4
-    sig_cell = ws.cell(row=row, column=1, value=labels.countersigned_label)
+    sig_cell = _cell(ws, row=row, column=1, value=labels.countersigned_label)
     sig_cell.font = Font(bold=True, size=12)
     sig_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
@@ -642,6 +673,7 @@ def export_package_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, c
     for col in range(rate_start_col, last_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = 18
 
+    _sanitize_workbook_text(wb)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -680,12 +712,12 @@ def export_working_comparison_xlsx(
         lowest_col = rate_start_col + n
         last_col = lowest_col + 2
 
-    title_cell = ws.cell(row=1, column=1, value="WORKING COMPARISON - SELECTED SUPPLIERS ONLY")
+    title_cell = _cell(ws, row=1, column=1, value="WORKING COMPARISON - SELECTED SUPPLIERS ONLY")
     title_cell.font = Font(bold=True, size=11, color="C0392B")
     title_cell.alignment = banner_align
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
 
-    subtitle_cell = ws.cell(
+    subtitle_cell = _cell(ws, 
         row=2, column=1,
         value="Not the official Comparative Statement - a working shortlist for internal review.",
     )
@@ -693,83 +725,83 @@ def export_working_comparison_xlsx(
     subtitle_cell.alignment = banner_align
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
 
-    inquiry_cell = ws.cell(row=3, column=1, value=tender.inquiry_no)
+    inquiry_cell = _cell(ws, row=3, column=1, value=tender.inquiry_no)
     inquiry_cell.font = Font(bold=True, size=10)
     inquiry_cell.alignment = banner_align
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=last_col)
 
-    suppliers_cell = ws.cell(row=4, column=1, value="Suppliers: " + ", ".join(s.name for s in selected_suppliers))
+    suppliers_cell = _cell(ws, row=4, column=1, value="Suppliers: " + ", ".join(s.name for s in selected_suppliers))
     suppliers_cell.font = Font(size=9)
     suppliers_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=last_col)
 
     header_row = 6
     for col, label in [(1, "Ser"), (2, "Part No"), (3, "Description"), (4, "Qty")]:
-        cell = ws.cell(row=header_row, column=col, value=label)
+        cell = _cell(ws, row=header_row, column=col, value=label)
         cell.font = bold
         cell.alignment = header_align
     for i, s in enumerate(selected_suppliers):
-        cell = ws.cell(row=header_row, column=rate_start_col + i, value=s.name)
+        cell = _cell(ws, row=header_row, column=rate_start_col + i, value=s.name)
         cell.font = bold
         cell.alignment = header_align
 
     if view == "package":
         row = header_row + 1
         for item in items:
-            ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.item_master.part_no)
-            ws.cell(row=row, column=3, value=item.item_master.description)
-            ws.cell(row=row, column=4, value=item.qty)
+            _cell(ws, row=row, column=1, value=item.ser)
+            _cell(ws, row=row, column=2, value=item.item_master.part_no)
+            _cell(ws, row=row, column=3, value=item.item_master.description)
+            _cell(ws, row=row, column=4, value=item.qty)
             for i, s in enumerate(selected_suppliers):
                 rate = next((q.rate for q in item.quotes if q.supplier_id == s.id), None)
-                ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+                _cell(ws, row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
             row += 1
 
         row += 2
         tax_label = tender.tax_type.value
-        heading_cell = ws.cell(row=row, column=1, value="PACKAGE TOTALS (selected suppliers only)")
+        heading_cell = _cell(ws, row=row, column=1, value="PACKAGE TOTALS (selected suppliers only)")
         heading_cell.font = bold
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_col)
         row += 1
         for col, label in [(1, "Firm"), (3, "Items Quoted"), (4, "Store Value"), (5, tax_label), (6, "Contract Value"), (7, "Eligible")]:
-            ws.cell(row=row, column=col, value=label).font = bold
+            _cell(ws, row=row, column=col, value=label).font = bold
         row += 1
         lowest_marked = False
         for p in (package_totals or []):
-            name_cell = ws.cell(row=row, column=1, value=p.supplier_name)
+            name_cell = _cell(ws, row=row, column=1, value=p.supplier_name)
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
-            ws.cell(row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
-            ws.cell(row=row, column=4, value=p.store_value)
-            ws.cell(row=row, column=5, value=p.tax_amount)
-            ws.cell(row=row, column=6, value=p.contract_value)
-            ws.cell(row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
+            _cell(ws, row=row, column=3, value=f"{p.quoted_item_count}/{p.total_item_count}")
+            _cell(ws, row=row, column=4, value=p.store_value)
+            _cell(ws, row=row, column=5, value=p.tax_amount)
+            _cell(ws, row=row, column=6, value=p.contract_value)
+            _cell(ws, row=row, column=7, value="Yes" if p.fully_quoted else "No (partial)")
             if p.fully_quoted and not lowest_marked:
                 for c in range(1, 8):
-                    ws.cell(row=row, column=c).fill = lowest_fill
+                    _cell(ws, row=row, column=c).fill = lowest_fill
                 name_cell.font = bold
                 lowest_marked = True
             row += 1
     else:
-        ws.cell(row=header_row, column=lowest_col, value="Lowest Firm").font = bold
-        ws.cell(row=header_row, column=lowest_col + 1, value="Rate Rs.").font = bold
-        ws.cell(row=header_row, column=lowest_col + 2, value="Total Value").font = bold
+        _cell(ws, row=header_row, column=lowest_col, value="Lowest Firm").font = bold
+        _cell(ws, row=header_row, column=lowest_col + 1, value="Rate Rs.").font = bold
+        _cell(ws, row=header_row, column=lowest_col + 2, value="Total Value").font = bold
         for col in (lowest_col, lowest_col + 1, lowest_col + 2):
-            ws.cell(row=header_row, column=col).alignment = header_align
+            _cell(ws, row=header_row, column=col).alignment = header_align
 
         row = header_row + 1
         for r in (item_results or []):
             item = r.item
-            ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.item_master.part_no)
-            ws.cell(row=row, column=3, value=item.item_master.description)
-            ws.cell(row=row, column=4, value=item.qty)
+            _cell(ws, row=row, column=1, value=item.ser)
+            _cell(ws, row=row, column=2, value=item.item_master.part_no)
+            _cell(ws, row=row, column=3, value=item.item_master.description)
+            _cell(ws, row=row, column=4, value=item.qty)
             for i, s in enumerate(selected_suppliers):
                 rate = next((q.rate for q in item.quotes if q.supplier_id == s.id), None)
-                ws.cell(row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
+                _cell(ws, row=row, column=rate_start_col + i, value=rate if rate is not None else "NQ")
             lowest_name = suppliers_by_id[r.lowest_supplier_id].name if r.lowest_supplier_id else "NQ"
-            ws.cell(row=row, column=lowest_col, value=lowest_name)
-            ws.cell(row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
-            ws.cell(row=row, column=lowest_col + 2, value=r.total_value)
+            _cell(ws, row=row, column=lowest_col, value=lowest_name)
+            _cell(ws, row=row, column=lowest_col + 1, value=r.lowest_rate if r.lowest_rate is not None else 0)
+            _cell(ws, row=row, column=lowest_col + 2, value=r.total_value)
             row += 1
 
         row += 2
@@ -781,11 +813,11 @@ def export_working_comparison_xlsx(
 
         def _total_row(label: str, value: float) -> None:
             nonlocal row
-            cell = ws.cell(row=row, column=1, value=label)
+            cell = _cell(ws, row=row, column=1, value=label)
             cell.font = bold
             cell.alignment = right_align
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=lowest_col + 1)
-            ws.cell(row=row, column=lowest_col + 2, value=value)
+            _cell(ws, row=row, column=lowest_col + 2, value=value)
             row += 1
 
         _total_row(f"Total Amount Excl {tax_percent:g}% {tax_label} (Rs)", total_store)
@@ -799,6 +831,7 @@ def export_working_comparison_xlsx(
     for col in range(rate_start_col, last_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = 18
 
+    _sanitize_workbook_text(wb)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -817,69 +850,70 @@ def export_purchase_proposal_xlsx(proposal: "PurchaseProposal") -> bytes:
     tax_label = proposal.tender.tax_type.value
 
     row = 1
-    ws.cell(row=row, column=1, value=f"PURCHASE PROPOSAL - {proposal.tender.inquiry_no}").font = Font(
+    _cell(ws, row=row, column=1, value=f"PURCHASE PROPOSAL - {proposal.tender.inquiry_no}").font = Font(
         bold=True, size=13
     )
     row += 2
 
     for group in proposal.firm_groups:
-        ws.cell(row=row, column=1, value=f"Firm: {group.supplier_name}").font = bold
+        _cell(ws, row=row, column=1, value=f"Firm: {group.supplier_name}").font = bold
         row += 1
 
         for col, header in enumerate(item_headers, start=1):
-            ws.cell(row=row, column=col, value=header).font = bold
+            _cell(ws, row=row, column=col, value=header).font = bold
         row += 1
 
         for ai in group.items:
             item = ai.item
-            ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.item_master.part_no)
-            ws.cell(row=row, column=3, value=item.item_master.description)
-            ws.cell(row=row, column=4, value=item.item_master.default_unit)
-            ws.cell(row=row, column=5, value=item.qty)
-            ws.cell(row=row, column=6, value=ai.awarded_rate)
-            ws.cell(row=row, column=7, value=ai.total_value)
+            _cell(ws, row=row, column=1, value=item.ser)
+            _cell(ws, row=row, column=2, value=item.item_master.part_no)
+            _cell(ws, row=row, column=3, value=item.item_master.description)
+            _cell(ws, row=row, column=4, value=item.item_master.default_unit)
+            _cell(ws, row=row, column=5, value=item.qty)
+            _cell(ws, row=row, column=6, value=ai.awarded_rate)
+            _cell(ws, row=row, column=7, value=ai.total_value)
             row += 1
 
-        ws.cell(row=row, column=6, value="Store Value").font = bold
-        ws.cell(row=row, column=7, value=group.store_value)
+        _cell(ws, row=row, column=6, value="Store Value").font = bold
+        _cell(ws, row=row, column=7, value=group.store_value)
         row += 1
-        ws.cell(row=row, column=6, value=tax_label).font = bold
-        ws.cell(row=row, column=7, value=group.tax_amount)
+        _cell(ws, row=row, column=6, value=tax_label).font = bold
+        _cell(ws, row=row, column=7, value=group.tax_amount)
         row += 1
-        ws.cell(row=row, column=6, value="Contract Value").font = bold
-        ws.cell(row=row, column=7, value=group.contract_value)
+        _cell(ws, row=row, column=6, value="Contract Value").font = bold
+        _cell(ws, row=row, column=7, value=group.contract_value)
         row += 3
 
     if proposal.unresolved_items:
-        ws.cell(row=row, column=1, value="Unresolved items (no valid award - not quoted / needs review)").font = bold
+        _cell(ws, row=row, column=1, value="Unresolved items (no valid award - not quoted / needs review)").font = bold
         row += 1
         for col, header in enumerate(["Ser", "Part No", "Description", "Unit", "Qty"], start=1):
-            ws.cell(row=row, column=col, value=header).font = bold
+            _cell(ws, row=row, column=col, value=header).font = bold
         row += 1
         for item in proposal.unresolved_items:
-            ws.cell(row=row, column=1, value=item.ser)
-            ws.cell(row=row, column=2, value=item.item_master.part_no)
-            ws.cell(row=row, column=3, value=item.item_master.description)
-            ws.cell(row=row, column=4, value=item.item_master.default_unit)
-            ws.cell(row=row, column=5, value=item.qty)
+            _cell(ws, row=row, column=1, value=item.ser)
+            _cell(ws, row=row, column=2, value=item.item_master.part_no)
+            _cell(ws, row=row, column=3, value=item.item_master.description)
+            _cell(ws, row=row, column=4, value=item.item_master.default_unit)
+            _cell(ws, row=row, column=5, value=item.qty)
             row += 1
         row += 2
 
-    ws.cell(row=row, column=1, value="GRAND TOTAL").font = bold
-    ws.cell(row=row, column=2, value=f"Items: {proposal.grand_total.item_count}")
-    ws.cell(row=row, column=6, value="Store Value").font = bold
-    ws.cell(row=row, column=7, value=proposal.grand_total.store_value)
+    _cell(ws, row=row, column=1, value="GRAND TOTAL").font = bold
+    _cell(ws, row=row, column=2, value=f"Items: {proposal.grand_total.item_count}")
+    _cell(ws, row=row, column=6, value="Store Value").font = bold
+    _cell(ws, row=row, column=7, value=proposal.grand_total.store_value)
     row += 1
-    ws.cell(row=row, column=6, value=tax_label).font = bold
-    ws.cell(row=row, column=7, value=proposal.grand_total.tax_amount)
+    _cell(ws, row=row, column=6, value=tax_label).font = bold
+    _cell(ws, row=row, column=7, value=proposal.grand_total.tax_amount)
     row += 1
-    ws.cell(row=row, column=6, value="Contract Value").font = bold
-    ws.cell(row=row, column=7, value=proposal.grand_total.contract_value)
+    _cell(ws, row=row, column=6, value="Contract Value").font = bold
+    _cell(ws, row=row, column=7, value=proposal.grand_total.contract_value)
 
     for col_letter, width in zip("ABCDEFG", [6, 12, 36, 8, 8, 12, 14]):
         ws.column_dimensions[col_letter].width = width
 
+    _sanitize_workbook_text(wb)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

@@ -297,6 +297,25 @@ def test_cs_excel_shows_designation_line_when_suggested_field_is_set():
         assert "Director Finance" in values_with
 
 
+def test_cs_excel_strips_illegal_control_characters_from_pasted_labels():
+    """Regression: a label pasted from Word can carry an ASCII control
+    character (e.g. \\x0b vertical tab) that openpyxl refuses outright
+    (IllegalCharacterError), crashing the whole export - see excel_io.py's
+    _sanitize_workbook_text()."""
+    with _fresh_session() as session:
+        tender = import_tender(CS_XLSX_PATH, session)
+        cs = build_comparative_statement(session, tender.id)
+
+        labels = DocumentLabels(head_qac_label="__________ Capt\x0bDAD (FWA) \x0b(Muhammad Qasim)")
+        content = export_cs_xlsx(cs, labels, {})  # must not raise IllegalCharacterError
+
+        from openpyxl import load_workbook
+
+        values = [c.value for row in load_workbook(BytesIO(content)).active.iter_rows() for c in row]
+        assert "__________ CaptDAD (FWA) (Muhammad Qasim)" in values
+        assert not any(isinstance(v, str) and "\x0b" in v for v in values)
+
+
 # --- Full HTTP round trip ----------------------------------------------------
 
 
