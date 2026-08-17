@@ -135,20 +135,34 @@ app/
                                                # always overrides a same-named
                                                # field; reserved names blocked at
                                                # creation (RESERVED_TAG_NAMES).
-                                               # SUGGESTED_PP_CA_FIELDS names 15
-                                               # consignee/authority/routing-chain
-                                               # blanks in ca_template.docx/
-                                               # pp_template.docx that were found
-                                               # hardcoded to one department's
-                                               # wording (e.g. "our Organization",
-                                               # "Company") when a real sample CA/PP
-                                               # from a different department showed
-                                               # they actually vary - each is now
+                                               # Suggested tags are split one dict
+                                               # per document - SUGGESTED_CS_FIELDS/
+                                               # SUGGESTED_PP_FIELDS/
+                                               # SUGGESTED_CA_FIELDS (15 PP/CA names
+                                               # total) - with tag_document_scope()/
+                                               # classify_fields_by_scope() as a pure
+                                               # lookup (no DB column) reporting which
+                                               # document(s) a tag belongs to for the
+                                               # Settings UI; "global" is reserved
+                                               # strictly for a tag used in every
+                                               # document type, not as a loose synonym
+                                               # for "not department-scoped". The 15
+                                               # PP/CA names are consignee/authority/
+                                               # routing-chain blanks in
+                                               # ca_template.docx/pp_template.docx
+                                               # that were found hardcoded to one
+                                               # department's wording (e.g. "our
+                                               # Organization", "Company") when a real
+                                               # sample CA/PP from a different
+                                               # department showed they actually vary
+                                               # - each is now
                                                # {{ tag|default('original text') }},
                                                # so it renders unchanged until a
-                                               # same-named field (typically inside
-                                               # that department's Custom Field
-                                               # Group) is created - see
+                                               # same-named field exists, typically via
+                                               # bulk_set_group_fields() - the
+                                               # structured "Department profile" form
+                                               # that saves all 15 for one Custom
+                                               # Field Group in a single submit - see
                                                # docs/data-model.md
   template_manager.py                       # Settings > Document Templates:
                                              # download/upload/restore pp_template.docx
@@ -455,7 +469,8 @@ A later session was given a second, real-looking sample set - `CA 8127.doc`,
 personnel names and figures, not the `CS.xlsx` dummy dataset's numbers) -
 used the same way: analysing which text in them was manually highlighted
 red (meaning "this varies, fill it in") against what the shipped templates
-had hardcoded, which is what `custom_fields.SUGGESTED_PP_CA_FIELDS` (see
+had hardcoded, which is what `custom_fields.SUGGESTED_PP_FIELDS`/
+`SUGGESTED_CA_FIELDS` (see
 `docs/data-model.md`) came from. `.gitignore` covers this pattern
 generically (`CA *.doc`, `PP *.doc`, `CST *.xlsx`) so any future sample set
 following this same "type space number" naming stays out of git without

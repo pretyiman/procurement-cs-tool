@@ -1,7 +1,7 @@
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.custom_fields import SUGGESTED_PP_CA_FIELDS
+from app.custom_fields import SUGGESTED_CA_FIELDS, SUGGESTED_PP_FIELDS
 from app.models import CustomField, CustomFieldGroup, Item, Quote, Tender, TenderStatus
 from app.seed_demo_data import seed_demo_data_if_empty
 
@@ -40,7 +40,7 @@ def test_seeds_a_custom_field_group_with_every_suggested_pp_ca_tag():
 
         fields = session.exec(select(CustomField).where(CustomField.group_id == groups[0].id)).all()
         seeded_tags = {f.tag_name for f in fields}
-        assert seeded_tags == set(SUGGESTED_PP_CA_FIELDS)
+        assert seeded_tags == set(SUGGESTED_PP_FIELDS) | set(SUGGESTED_CA_FIELDS)
         assert all(f.value.strip() for f in fields)  # every example value is non-blank
 
 

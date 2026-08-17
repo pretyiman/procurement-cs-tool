@@ -173,16 +173,38 @@ exists - no code change needed. A document's context is the global fields
 with its tender's department-group fields (if any) overlaid on top - see
 `custom_fields.custom_fields_dict_for_tender()`. Real per-contract data
 always overrides a same-named custom field if merged (defense in depth on
-top of the reserved-name check at creation time). A handful of recognised
-names (`prep_by_designation`, `checked_by_designation`,
-`head_qac_designation`, `fmsad_designation` - see
-`custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS`) are also picked up by the
-CS Excel export to show a designation/rank line under the matching
-signature role, since that layout is fixed cells (openpyxl), not
-template-tag-driven like the Word docs.
+top of the reserved-name check at creation time).
 
-**PP/CA "department blank" fields** (`custom_fields.SUGGESTED_PP_CA_FIELDS`,
-15 names) exist because comparing the shipped `ca_template.docx`/
+**Document scoping.** `custom_fields.py` defines three suggested-tag
+dicts, one per document - `SUGGESTED_CS_FIELDS`, `SUGGESTED_PP_FIELDS`,
+`SUGGESTED_CA_FIELDS` (together, `DOCUMENT_FIELD_SETS`). This is a pure
+lookup, not a DB column: `CustomField` has no `document` field, because
+every tag the app currently knows about is drawn from one of these three
+hardcoded dicts, and `tag_document_scope(tag_name)` just reports which
+dict(s) contain it. `classify_fields_by_scope()` uses that to bucket a
+list of `CustomField` rows for the Settings UI: `"CS"`/`"PP"`/`"CA"` for a
+tag found in exactly one dict, `"shared"` for a tag found in two,
+`"global"` reserved *specifically* for a tag found in all three (today,
+none are - the CS signature-line tags and the PP/CA "department blank"
+tags below happen not to overlap) and `"other"` for a tag typed in
+free-hand that isn't in any suggested dict (its document scope can't be
+inferred, so it isn't assumed to be global). The word "global" is
+deliberately reserved for that all-documents case and never used loosely
+for "not department-scoped" - a `CustomField` with `group_id IS NULL` but
+a CS-only tag_name is labelled a "CS field" in the UI, not a "global"
+one, even though mechanically it has no group.
+
+- `prep_by_designation`, `checked_by_designation`,
+  `head_qac_designation`, `fmsad_designation` (`SUGGESTED_CS_FIELDS`) are
+  picked up by the CS Excel export to show a designation/rank line under
+  the matching signature role, since that layout is fixed cells
+  (openpyxl), not template-tag-driven like the Word docs. These are the
+  procurement office's own staff (who prepare/check/approve the CS), not
+  the requesting department, so they're meant to stay organization-wide
+  fields, not live inside a department's `CustomFieldGroup`.
+
+**PP/CA "department blank" fields** (`SUGGESTED_PP_FIELDS` + `SUGGESTED_CA_FIELDS`,
+15 names total) exist because comparing the shipped `ca_template.docx`/
 `pp_template.docx` against a real department's filled-in sample CA/PP
 showed several blanks that looked like fixed boilerplate were actually
 supposed to vary per department - the sample had them manually
@@ -195,14 +217,15 @@ unless a same-named `CustomField` exists - typically inside the
 originating department's `CustomFieldGroup`, since these are exactly the
 "consignee/authority differs by department" case that mechanism was built
 for:
-- CA: `indentor_name`, `cost_head`, `country_of_origin`,
-  `inspection_authority`, `inspection_officer_detail`,
+- CA (`SUGGESTED_CA_FIELDS`): `indentor_name`, `cost_head`,
+  `country_of_origin`, `inspection_authority`, `inspection_officer_detail`,
   `place_of_inspection`, `ca_paying_authority`, `secrecy_authority`
-- PP: `pp_paying_authority`, `pp_prep_officer_rank_name`,
-  `pp_prep_officer_department`, `routing_mid_role`,
-  `routing_md_hrf_remark`, `routing_final_role`, `routing_final_remark`
-  (the last four are the routing/circulation chain in the PP signature
-  block - which role approves next, and the remark shown beside them)
+- PP (`SUGGESTED_PP_FIELDS`): `pp_paying_authority`,
+  `pp_prep_officer_rank_name`, `pp_prep_officer_department`,
+  `routing_mid_role`, `routing_md_hrf_remark`, `routing_final_role`,
+  `routing_final_remark` (the last four are the routing/circulation chain
+  in the PP signature block - which role approves next, and the remark
+  shown beside them)
 
 Deliberately scoped to *only* the blanks confirmed dynamic against that
 one real sample - a couple of adjacent lines (the "Through ___" routing
@@ -212,6 +235,15 @@ template text since there was no evidence they vary; if they turn out to
 need to, non-technical staff can still edit `ca_template.docx`/
 `pp_template.docx` directly in Word (Settings > Document Templates), same
 as any other wording change.
+
+`/settings/custom-fields` gives each `CustomFieldGroup` a "Department
+profile" form that shows all 15 PP/CA fields pre-filled in one place
+(organized under Purchase Proposal / Contract Award subheadings), backed
+by `custom_fields.bulk_set_group_fields()` - upserts a value, or deletes
+the group's override entirely if submitted blank (falling back to the
+organization-wide value, if any). The page also keeps the original
+one-at-a-time add/edit/delete flow, for genuinely ad-hoc tags outside
+this known 15-tag set (the `"other"` bucket above).
 
 ### ProposalSnapshot (frozen Purchase Proposal, one per tender)
 | field | type | notes |
@@ -447,7 +479,7 @@ tenders (`DEMO/2026/001`-`005`) spanning every lifecycle stage - draft
 (Purchase Proposal), proposal approved (Contract Award, ready to
 issue/download), and fully awarded - plus one `CustomFieldGroup` (tied to
 the "Supply Chain Management" department) populated with example values
-for all 15 `custom_fields.SUGGESTED_PP_CA_FIELDS` tags, so downloading a
+for all 15 `custom_fields.SUGGESTED_PP_FIELDS`/`SUGGESTED_CA_FIELDS` tags, so downloading a
 Contract Award/Purchase Proposal for the proposal-approved demo tender
 immediately shows filled-in department details instead of generic
 template defaults.

@@ -12,7 +12,8 @@ this project has ever handled.
 Builds 5 tenders spanning every lifecycle stage (Items -> Quote Entry /
 Comparative Summary -> Purchase Proposal -> Contract Award -> fully
 Awarded), plus a Custom Field Group with example values for all 15 of
-the PP/CA "department blank" tags (see custom_fields.SUGGESTED_PP_CA_FIELDS)
+the PP/CA "department blank" tags (see custom_fields.SUGGESTED_PP_FIELDS /
+SUGGESTED_CA_FIELDS)
 so a demo download of the Purchase Proposal/Contract Award for the
 Contract-Award-stage tender shows filled-in text instead of generic
 defaults."""

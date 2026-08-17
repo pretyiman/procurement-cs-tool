@@ -17,8 +17,11 @@ from .award_engine import build_purchase_proposal, resolve_awarded_items, valida
 from .business_rules import get_business_rules
 from .cs_engine import build_comparative_statement, compute_bundle_lineup, compute_item_result
 from .custom_fields import (
-    SUGGESTED_CS_SIGNATURE_FIELDS,
-    SUGGESTED_PP_CA_FIELDS,
+    SUGGESTED_CA_FIELDS,
+    SUGGESTED_CS_FIELDS,
+    SUGGESTED_PP_FIELDS,
+    bulk_set_group_fields,
+    classify_fields_by_scope,
     create_custom_field,
     create_group,
     custom_fields_dict_for_tender,
@@ -26,6 +29,7 @@ from .custom_fields import (
     delete_group,
     list_custom_fields,
     list_groups,
+    tag_document_scope,
     update_custom_field,
     update_group,
 )
@@ -85,6 +89,7 @@ app = FastAPI(title="Procurement Comparative Statement & Award Tool")
 
 templates = Jinja2Templates(directory=str(resource_path("templates")))
 templates.env.globals["icon"] = icon
+templates.env.globals["tag_document_scope"] = tag_document_scope
 
 
 @app.on_event("startup")
@@ -1767,18 +1772,43 @@ def update_cs_labels(
 def custom_fields_form(request: Request, error: str = "", saved: str = "", session: Session = Depends(get_session)):
     fields = list_custom_fields(session)
     used_suggestions = {f.tag_name for f in fields}
-    cs_suggestions = [
-        {"tag_name": name, "description": desc}
-        for name, desc in SUGGESTED_CS_SIGNATURE_FIELDS.items()
-        if name not in used_suggestions
-    ]
-    pp_ca_suggestions = [
-        {"tag_name": name, "description": desc}
-        for name, desc in SUGGESTED_PP_CA_FIELDS.items()
-        if name not in used_suggestions
-    ]
+
+    def _suggestions(field_dict: dict) -> list:
+        return [
+            {"tag_name": name, "description": desc}
+            for name, desc in field_dict.items()
+            if name not in used_suggestions
+        ]
+
+    cs_suggestions = _suggestions(SUGGESTED_CS_FIELDS)
+    pp_suggestions = _suggestions(SUGGESTED_PP_FIELDS)
+    ca_suggestions = _suggestions(SUGGESTED_CA_FIELDS)
+    global_buckets = classify_fields_by_scope(fields)
+
+    pp_ca_tag_names = set(SUGGESTED_PP_FIELDS) | set(SUGGESTED_CA_FIELDS)
     groups = list_groups(session)
-    groups_view = [{"group": g, "fields": list_custom_fields(session, group_id=g.id)} for g in groups]
+    groups_view = []
+    for g in groups:
+        group_fields = list_custom_fields(session, group_id=g.id)
+        group_values = {f.tag_name: f.value for f in group_fields}
+        groups_view.append(
+            {
+                "group": g,
+                # Only the "Other" (non PP/CA-suggested) fields show in the
+                # old flat add/edit list now - the 15 known ones live in
+                # the structured profile form below instead, so nothing
+                # appears twice.
+                "fields": [f for f in group_fields if f.tag_name not in pp_ca_tag_names],
+                "profile_pp": [
+                    {"tag_name": n, "description": d, "value": group_values.get(n, "")}
+                    for n, d in SUGGESTED_PP_FIELDS.items()
+                ],
+                "profile_ca": [
+                    {"tag_name": n, "description": d, "value": group_values.get(n, "")}
+                    for n, d in SUGGESTED_CA_FIELDS.items()
+                ],
+            }
+        )
     grouped_department_ids = {g.department_id for g in groups}
     all_departments = session.exec(select(Department).order_by(Department.name)).all()
     departments_without_group = [d for d in all_departments if d.id not in grouped_department_ids]
@@ -1786,9 +1816,10 @@ def custom_fields_form(request: Request, error: str = "", saved: str = "", sessi
         request,
         "custom_fields.html",
         {
-            "fields": fields,
+            "global_buckets": global_buckets,
             "cs_suggestions": cs_suggestions,
-            "pp_ca_suggestions": pp_ca_suggestions,
+            "pp_suggestions": pp_suggestions,
+            "ca_suggestions": ca_suggestions,
             "error": error,
             "saved": bool(saved),
             "groups_view": groups_view,
@@ -1841,6 +1872,20 @@ def update_custom_field_group_route(group_id: int, name: str = Form(...), sessio
 @app.post("/settings/custom-field-groups/{group_id}/delete")
 def delete_custom_field_group_route(group_id: int, session: Session = Depends(get_session)):
     delete_group(session, group_id)
+    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+
+
+@app.post("/settings/custom-field-groups/{group_id}/profile")
+async def save_custom_field_group_profile_route(
+    group_id: int, request: Request, session: Session = Depends(get_session)
+):
+    """The structured "Department profile" form - saves every PP/CA field
+    for this department in one submit (see bulk_set_group_fields), instead
+    of the one-at-a-time add/edit flow the rest of Custom Fields still uses
+    for anything outside that known 15-tag set."""
+    form = await request.form()
+    values = {tag_name: str(form.get(tag_name, "")) for tag_name in {**SUGGESTED_PP_FIELDS, **SUGGESTED_CA_FIELDS}}
+    bulk_set_group_fields(session, group_id, values)
     return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
 
 

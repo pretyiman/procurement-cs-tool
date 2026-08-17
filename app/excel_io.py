@@ -428,7 +428,7 @@ def export_cs_xlsx(cs: "ComparativeStatement", labels: DocumentLabels, custom_fi
         if designation:
             # Optional second line under the role label - e.g. "Junior
             # Clerk (BS-11)" - sourced from a Custom Field (Settings), see
-            # custom_fields.SUGGESTED_CS_SIGNATURE_FIELDS. Blank/omitted if
+            # custom_fields.SUGGESTED_CS_FIELDS. Blank/omitted if
             # that custom field was never set, matching the original
             # layout exactly.
             designation_cell = ws.cell(row=line_row + 2, column=col_start, value=designation)

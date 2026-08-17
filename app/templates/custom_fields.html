@@ -4,7 +4,7 @@
 <h1>Custom Fields</h1>
 {% include "_settings_nav.html" %}
 <p class="muted">
-  Define a name/value text pair here, and it becomes usable as <code>{{ '{{ tag_name }}' }}</code> directly in the Purchase Proposal / Contract Award Word templates - no code change needed. Only for text that's the <strong>same on every document</strong> (a designation, a boilerplate phrase); real per-contract data (rates, firm names, dates, totals) always comes from the actual RFQ automatically and can't be overridden here.
+  Define a name/value text pair here, and it becomes usable as <code>{{ '{{ tag_name }}' }}</code> directly in the Purchase Proposal / Contract Award Word templates - no code change needed. Only for text that's the <strong>same on every document</strong> (a designation, a boilerplate phrase); real per-contract data (rates, firm names, dates, totals) always comes from the actual RFQ automatically and can't be overridden here. Fields are organized below by which document they affect - CS (the Comparative Statement Excel export), PP (Purchase Proposal), CA (Contract Award).
 </p>
 
 {% if error %}
@@ -14,45 +14,51 @@
 <div class="card notice-exists"><strong>Saved.</strong> New documents will use the updated fields.</div>
 {% endif %}
 
-{% if cs_suggestions %}
+{% macro suggestion_card(title, hint, suggestions) %}
+{% if suggestions %}
 <div class="card">
-  <h2 style="margin-top:0">Suggested fields - CS Excel export</h2>
-  <p class="muted" style="margin-top:0">The CS Excel export's signature block will show a designation/rank line under each role automatically, if a field with one of these exact names exists:</p>
+  <h2 style="margin-top:0">{{ title }}</h2>
+  <p class="muted" style="margin-top:0">{{ hint }}</p>
   <table>
     <thead><tr><th>Tag name</th><th>Where it's used</th></tr></thead>
     <tbody>
-      {% for s in cs_suggestions %}
-      <tr><td><code>{{ s.tag_name }}</code></td><td>{{ s.description }}</td></tr>
+      {% for s in suggestions %}
+      <tr>
+        <td><code>{{ s.tag_name }}</code></td>
+        <td>
+          {{ s.description }}
+          {% set scope = tag_document_scope(s.tag_name) %}
+          {% if scope|length > 1 %}<span class="tag tag-accent" style="margin-left:0.4rem">also used in {{ scope|join(', ') }}</span>{% endif %}
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+{% endmacro %}
 
-{% if pp_ca_suggestions %}
-<div class="card">
-  <h2 style="margin-top:0">Suggested fields - Purchase Proposal / Contract Award</h2>
-  <p class="muted" style="margin-top:0">
-    These blanks in the PP/CA Word templates render today's default wording until a field with one of these
-    exact names exists - typically inside a department's Custom Field Group below, since these are
-    consignee/authority details that differ by department:
-  </p>
-  <table>
-    <thead><tr><th>Tag name</th><th>Where it's used</th></tr></thead>
-    <tbody>
-      {% for s in pp_ca_suggestions %}
-      <tr><td><code>{{ s.tag_name }}</code></td><td>{{ s.description }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
+{{ suggestion_card(
+  "Suggested fields - CS Excel export",
+  "The CS Excel export's signature block will show a designation/rank line under each role automatically, if a field with one of these exact names exists. These are the procurement office's own staff who prepare/check/approve the Comparative Statement - not the requesting department - so set them below as organization-wide fields, not inside a department profile.",
+  cs_suggestions
+) }}
+{{ suggestion_card(
+  "Suggested fields - Purchase Proposal",
+  "Blanks in the PP Word template that render today's default wording until a field with one of these exact names exists - typically inside a department's profile below, since these are consignee/authority details that differ by department.",
+  pp_suggestions
+) }}
+{{ suggestion_card(
+  "Suggested fields - Contract Award",
+  "Blanks in the CA Word template that render today's default wording until a field with one of these exact names exists - typically inside a department's profile below, since these are consignee/authority details that differ by department.",
+  ca_suggestions
+) }}
 
-<h2>Global fields</h2>
-<p class="muted">The same value on every document, regardless of which department the RFQ belongs to.</p>
+<h2>Organization-wide fields</h2>
+<p class="muted">The same value on every document, regardless of which department the RFQ belongs to - a department's own profile (below) overrides one of these only for the specific tags it sets.</p>
 
 <div class="card">
-  <h2 style="margin-top:0">Add a global field</h2>
+  <h2 style="margin-top:0">Add an organization-wide field</h2>
   <form method="post" action="/settings/custom-fields" class="row-form" id="add-field-form">
     <input type="hidden" name="group_id" value="">
     <div class="field">
@@ -71,13 +77,12 @@
   </form>
 </div>
 
-{% if fields %}
-{% for f in fields %}
+{% macro field_card(f) %}
 <div class="card">
   <form method="post" action="/settings/custom-fields/{{ f.id }}/update" class="row-form">
     <div class="field">
       <label>Tag name</label>
-      <input type="text" value="{{ f.tag_name }}" disabled style="background:#f4f6f8">
+      <input type="text" value="{{ f.tag_name }}" disabled style="background:color-mix(in srgb, var(--color-text) 6%, transparent)">
     </div>
     <div class="field">
       <label for="label_{{ f.id }}">Description</label>
@@ -94,23 +99,39 @@
     <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete</button>
   </form>
 </div>
-{% endfor %}
+{% endmacro %}
+
+{% macro field_bucket(title, fields) %}
+{% if fields %}
+<h3>{{ title }}</h3>
+{% for f in fields %}{{ field_card(f) }}{% endfor %}
+{% endif %}
+{% endmacro %}
+
+{% set any_global_fields = global_buckets.CS or global_buckets.PP or global_buckets.CA or global_buckets.shared or global_buckets.global or global_buckets.other %}
+{% if any_global_fields %}
+{{ field_bucket("CS fields", global_buckets.CS) }}
+{{ field_bucket("PP fields", global_buckets.PP) }}
+{{ field_bucket("CA fields", global_buckets.CA) }}
+{{ field_bucket("Shared fields (used in 2 documents)", global_buckets.shared) }}
+{{ field_bucket("Global fields (used in every document)", global_buckets.global) }}
+{{ field_bucket("Other fields", global_buckets.other) }}
 {% else %}
-<p class="empty">No global fields yet - add one above.</p>
+<p class="empty">No organization-wide fields yet - add one above.</p>
 {% endif %}
 
-<h2>Custom Field Groups (per-department)</h2>
+<h2>Department profiles</h2>
 <p class="muted">
-  For values that legitimately differ by which department initiated the RFQ - e.g. Department A's initiating officer name/designation, or its usual receiving store/authority, vs. Department B's. Each department can have one group. When a document is generated for an RFQ, the app looks up that RFQ's department, and any tag defined in that department's group overrides the matching global field above (a group only needs to define what's <em>different</em> - anything it doesn't set still falls back to the global value). An RFQ with no department, or a department with no group, just uses the global fields as-is.
+  For values that legitimately differ by which department initiated the RFQ - e.g. Department A's initiating officer name/designation, or its usual receiving store/authority, vs. Department B's. Each department can have one profile. When a document is generated for an RFQ, the app looks up that RFQ's department and overrides the organization-wide fields above with anything this profile sets (a profile only needs to define what's <em>different</em> - a blank field here still falls back to the organization-wide value). An RFQ with no department, or a department with no profile, just uses the organization-wide fields as-is.
 </p>
 
 {% if departments_without_group %}
 <div class="card">
-  <h2 style="margin-top:0">Create a group</h2>
+  <h2 style="margin-top:0">Create a department profile</h2>
   <form method="post" action="/settings/custom-field-groups" class="row-form">
     <div class="field">
-      <label for="new_group_name">Group name</label>
-      <input type="text" id="new_group_name" name="name" required placeholder="e.g. Department A">
+      <label for="new_group_name">Profile name</label>
+      <input type="text" id="new_group_name" name="name" required placeholder="e.g. IT Department">
     </div>
     <div class="field">
       <label for="new_group_department">Department</label>
@@ -121,7 +142,7 @@
         {% endfor %}
       </select>
     </div>
-    <button type="submit">Create group</button>
+    <button type="submit">Create profile</button>
   </form>
 </div>
 {% endif %}
@@ -131,21 +152,46 @@
 <div class="card">
   <form method="post" action="/settings/custom-field-groups/{{ gv.group.id }}/update" class="row-form">
     <div class="field">
-      <label for="group_name_{{ gv.group.id }}">Group name</label>
+      <label for="group_name_{{ gv.group.id }}">Profile name</label>
       <input type="text" id="group_name_{{ gv.group.id }}" name="name" value="{{ gv.group.name }}" required>
     </div>
     <div class="field">
       <label>Department</label>
-      <input type="text" value="{{ gv.group.department.name if gv.group.department else '' }}" disabled style="background:#f4f6f8">
+      <input type="text" value="{{ gv.group.department.name if gv.group.department else '' }}" disabled style="background:color-mix(in srgb, var(--color-text) 6%, transparent)">
     </div>
     <button type="submit">Save</button>
   </form>
   <form method="post" action="/settings/custom-field-groups/{{ gv.group.id }}/delete" style="margin-top:0.5rem"
-        onsubmit="return confirm('Delete the group &quot;{{ gv.group.name }}&quot; and all {{ gv.fields|length }} field(s) in it?');">
-    <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete group</button>
+        onsubmit="return confirm('Delete the profile &quot;{{ gv.group.name }}&quot; and everything in it?');">
+    <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete profile</button>
   </form>
 
-  <h3>Fields in this group</h3>
+  <h3 style="margin-bottom:0.25rem">Department profile - Purchase Proposal &amp; Contract Award</h3>
+  <p class="muted" style="margin-top:0">Every PP/CA blank in one place - fill in what's different for this department, leave the rest blank to keep using the organization-wide value. Saved together.</p>
+  <form method="post" action="/settings/custom-field-groups/{{ gv.group.id }}/profile">
+    <h4 style="margin-bottom:0.5rem">Purchase Proposal</h4>
+    <div class="row-form" style="margin-bottom:1rem">
+      {% for f in gv.profile_pp %}
+      <div class="field">
+        <label for="pp_{{ gv.group.id }}_{{ f.tag_name }}">{{ f.description }}<br><code style="font-weight:normal">{{ f.tag_name }}</code></label>
+        <input type="text" id="pp_{{ gv.group.id }}_{{ f.tag_name }}" name="{{ f.tag_name }}" value="{{ f.value }}">
+      </div>
+      {% endfor %}
+    </div>
+    <h4 style="margin-bottom:0.5rem">Contract Award</h4>
+    <div class="row-form" style="margin-bottom:1rem">
+      {% for f in gv.profile_ca %}
+      <div class="field">
+        <label for="ca_{{ gv.group.id }}_{{ f.tag_name }}">{{ f.description }}<br><code style="font-weight:normal">{{ f.tag_name }}</code></label>
+        <input type="text" id="ca_{{ gv.group.id }}_{{ f.tag_name }}" name="{{ f.tag_name }}" value="{{ f.value }}">
+      </div>
+      {% endfor %}
+    </div>
+    <button type="submit">Save department profile</button>
+  </form>
+
+  <h3>Other fields in this profile</h3>
+  <p class="muted" style="margin-top:0">Anything outside the Purchase Proposal / Contract Award blanks above - a genuinely custom tag you've typed into a template yourself.</p>
   <form method="post" action="/settings/custom-fields" class="row-form">
     <input type="hidden" name="group_id" value="{{ gv.group.id }}">
     <div class="field">
@@ -165,11 +211,11 @@
 
   {% if gv.fields %}
   {% for f in gv.fields %}
-  <div class="card" style="background:#f9fafb">
+  <div class="card" style="background:color-mix(in srgb, var(--color-text) 3%, transparent)">
     <form method="post" action="/settings/custom-fields/{{ f.id }}/update" class="row-form">
       <div class="field">
         <label>Tag name</label>
-        <input type="text" value="{{ f.tag_name }}" disabled style="background:#f4f6f8">
+        <input type="text" value="{{ f.tag_name }}" disabled style="background:color-mix(in srgb, var(--color-text) 6%, transparent)">
       </div>
       <div class="field">
         <label for="label_{{ f.id }}">Description</label>
@@ -182,18 +228,18 @@
       <button type="submit">Save</button>
     </form>
     <form method="post" action="/settings/custom-fields/{{ f.id }}/delete" style="margin-top:0.5rem"
-          onsubmit="return confirm('Delete this field from the group?');">
+          onsubmit="return confirm('Delete this field from the profile?');">
       <button type="submit" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Delete</button>
     </form>
   </div>
   {% endfor %}
   {% else %}
-  <p class="empty">No fields in this group yet - add one above.</p>
+  <p class="empty">No other fields in this profile.</p>
   {% endif %}
 </div>
 {% endfor %}
 {% else %}
-<p class="empty">No Custom Field Groups yet.</p>
+<p class="empty">No department profiles yet.</p>
 {% endif %}
 
 <script>

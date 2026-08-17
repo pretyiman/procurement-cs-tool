@@ -553,6 +553,49 @@ rather than deleted, for the same "will restore later" reasoning.
 
 ---
 
+## Post-MVP round 4 (Custom Fields reorganized by document + department profiles)
+
+Requested because the flat "Global fields" + one-at-a-time "add a field
+to a group" flow from round 2 didn't scale to filling in all 15 PP/CA
+"department blank" tags for a department, and gave no sense of which
+document(s) a tag actually affects. Redesigned per explicit user
+feedback (not the first proposal accepted as-is - see commit/session
+notes): tag names stay a flat `CustomField` table (no new `document`
+column - `custom_fields.tag_document_scope()` is a pure lookup against
+three hardcoded per-document dicts, `SUGGESTED_CS_FIELDS`/
+`SUGGESTED_PP_FIELDS`/`SUGGESTED_CA_FIELDS`), and `/settings/custom-fields`
+now:
+- splits the "suggested tags" reference into three cards (CS/PP/CA)
+  instead of two, each showing "also used in: ..." for any tag found in
+  more than one dict;
+- buckets existing organization-wide fields by scope
+  (`classify_fields_by_scope()`) into CS / PP / CA / Shared (2 documents)
+  / Global (all 3 documents) / Other (ad-hoc, unrecognized) sections -
+  "Global" is reserved strictly for the all-documents case, by explicit
+  user correction, never used as a loose synonym for "not
+  department-scoped" (today nothing actually lands in Shared or Global,
+  since the CS and PP/CA suggested-tag sets happen not to overlap yet);
+  a CS-only tag with no group is labelled a "CS field," not "global";
+- gives each department's `CustomFieldGroup` a structured "Department
+  profile" form - all 15 PP/CA fields, pre-filled, organized under
+  Purchase Proposal/Contract Award subheadings, saved together via the
+  new `bulk_set_group_fields()` (upserts a value, deletes the override
+  entirely if submitted blank) - in addition to, not instead of, the
+  original one-at-a-time add/edit/delete flow, kept for genuinely
+  ad-hoc tags outside the known 15.
+
+CS designations (`prep_by_designation` etc.) deliberately stay
+organization-wide only, never inside a department profile - they're the
+procurement office's own signing staff, not the requesting department's.
+
+`pytest tests/` (158 passed, 5 skipped) passes as of this round; new
+tests cover `tag_document_scope()`, `classify_fields_by_scope()`,
+`bulk_set_group_fields()` (including the blank-clears-the-override case),
+and an HTTP round trip through the new `/settings/custom-field-groups/
+{id}/profile` route.
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles

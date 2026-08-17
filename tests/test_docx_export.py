@@ -268,7 +268,7 @@ def test_purchase_proposal_est_cost_uses_lpr_when_present():
 # --- Custom field blanks (indentor/authority/routing-chain details) --------
 # These were hardcoded generic placeholder text in the templates until a
 # real department's sample CA/PP showed they actually vary per department -
-# see docs/data-model.md and custom_fields.SUGGESTED_PP_CA_FIELDS. Each is
+# see docs/data-model.md and custom_fields.SUGGESTED_PP_FIELDS / SUGGESTED_CA_FIELDS. Each is
 # now {{ tag|default('...') }}, so it must render the exact original text
 # when no custom field is supplied, and the override when one is.
 

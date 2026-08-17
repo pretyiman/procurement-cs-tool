@@ -5,9 +5,9 @@ Two consumers:
     Word template context, so {{ tag_name }} works in the template the
     moment a field with that name exists - no code change needed.
   - excel_io.py looks up a small fixed set of recognised names (see
-    SUGGESTED_CS_SIGNATURE_FIELDS) to fill in a designation/rank line
-    under each CS Excel signature role, since that layout is fixed
-    (openpyxl cells), not template-driven.
+    SUGGESTED_CS_FIELDS) to fill in a designation/rank line under each CS
+    Excel signature role, since that layout is fixed (openpyxl cells),
+    not template-driven.
 
 Real per-contract data (rates, firm names, computed totals - anything
 that legitimately differs between documents) always overrides a
@@ -22,6 +22,21 @@ A CustomFieldGroup lets the *value* behind a tag vary by which department
 initiated the RFQ (e.g. Department A's initiating officer name/designation
 differs from Department B's). custom_fields_dict_for_tender() resolves a
 tender's department to its group automatically - no manual selection step.
+
+**Document scoping.** Every suggested tag name is organized by which
+document it fills a blank in - SUGGESTED_CS_FIELDS / SUGGESTED_PP_FIELDS /
+SUGGESTED_CA_FIELDS - purely so the Settings UI can show "which document
+does this affect" instead of one undifferentiated pile. A tag name present
+in more than one of these dicts is "shared"; present in *all* of them is
+"Global" (deliberately reserved for that - not a synonym for "not
+department-scoped", see tag_document_scope()). None of the 19 built-in
+tags are shared/Global today (every CS field is CS-only, every PP field
+PP-only, every CA field CA-only) - the dicts just make it trivial to
+declare one that legitimately is later (add the same tag name to more
+than one dict). This classification is purely a *display* label: it
+cannot be derived for a genuinely ad-hoc tag name an admin types in that
+isn't one of these 19 (we have no way to know which document(s) they put
+{{ that_tag }} into themselves) - those show up under "Other" instead.
 """
 
 import re
@@ -49,40 +64,82 @@ RESERVED_TAG_NAMES = {
 }
 
 # Names the CS Excel export specifically looks for (excel_io.py) to add a
-# designation/rank line under the matching signature role. Shown as
-# suggestions in the Custom Fields settings UI - not enforced, just the
-# convention that makes them actually appear on the Excel export.
-SUGGESTED_CS_SIGNATURE_FIELDS = {
-    "prep_by_designation": "Designation shown under \"Prep By\" on the CS Excel export",
-    "checked_by_designation": "Designation shown under \"Checked by\" on the CS Excel export",
-    "head_qac_designation": "Designation shown under the head-of-department role on the CS Excel export",
-    "fmsad_designation": "Designation shown under the final-approver role on the CS Excel export",
+# designation/rank line under the matching signature role. These represent
+# the procurement/SCM office's own staff who prepare/check/approve the
+# Comparative Statement itself - not the requesting department - so unlike
+# the PP/CA fields below, they're not meant to vary per department; set
+# them once, org-wide, as global fields (group_id=None).
+SUGGESTED_CS_FIELDS = {
+    "prep_by_designation": "Designation shown under \"Prep By\"",
+    "checked_by_designation": "Designation shown under \"Checked by\"",
+    "head_qac_designation": "Designation shown under the head-of-department role",
+    "fmsad_designation": "Designation shown under the final-approver role",
 }
 
-# Blanks in ca_template.docx/pp_template.docx that were hardcoded generic
-# placeholder text (e.g. "our Organization", "Company") until a real
-# department's sample Contract Award / Purchase Proposal showed they
-# actually vary per department - each is now {{ tag|default('...') }} in
-# the template, so it renders exactly as before until a same-named custom
-# field is created (typically inside a department's CustomFieldGroup,
-# since these are consignee/authority details that differ by department).
-SUGGESTED_PP_CA_FIELDS = {
-    "indentor_name": "CA \"Name of Indentor\" - who's requesting the stores",
-    "cost_head": "CA \"Cost Debitable to Head\" - the fund/budget code",
-    "country_of_origin": "CA \"Country of Origin\" line",
-    "inspection_authority": "CA \"Inspection authority\" line",
-    "inspection_officer_detail": "CA \"Inspection Officer\" - who the officer is detailed by",
-    "place_of_inspection": "CA \"Place of Inspection\" line",
-    "ca_paying_authority": "CA \"Terms of Payment\" - who makes payment",
-    "secrecy_authority": "CA \"Secrecy\" clause - the authority who can release information",
-    "pp_paying_authority": "PP \"Terms of Payment\" - who makes payment",
-    "pp_prep_officer_rank_name": "PP signature block - preparing officer's rank & name",
-    "pp_prep_officer_department": "PP signature block - preparing officer's department",
-    "routing_mid_role": "PP routing chain - the mid-level approver's role/title",
-    "routing_md_hrf_remark": "PP routing chain - remark shown next to the mid-level approver",
-    "routing_final_role": "PP routing chain - the final approver's role/title",
-    "routing_final_remark": "PP routing chain - remark shown next to the final approver",
+# Blanks in pp_template.docx that were hardcoded generic placeholder text
+# (e.g. "our Organization") until a real department's sample Purchase
+# Proposal showed they actually vary per department - each is now
+# {{ tag|default('...') }} in the template, so it renders exactly as
+# before until a same-named custom field is created (typically inside a
+# department's CustomFieldGroup - see the "Department profile" form).
+SUGGESTED_PP_FIELDS = {
+    "pp_paying_authority": "Terms of Payment - who makes payment",
+    "pp_prep_officer_rank_name": "Signature block - preparing officer's rank & name",
+    "pp_prep_officer_department": "Signature block - preparing officer's department",
+    "routing_mid_role": "Routing chain - the mid-level approver's role/title",
+    "routing_md_hrf_remark": "Routing chain - remark shown next to the mid-level approver",
+    "routing_final_role": "Routing chain - the final approver's role/title",
+    "routing_final_remark": "Routing chain - remark shown next to the final approver",
 }
+
+# Same idea, for ca_template.docx.
+SUGGESTED_CA_FIELDS = {
+    "indentor_name": "\"Name of Indentor\" - who's requesting the stores",
+    "cost_head": "\"Cost Debitable to Head\" - the fund/budget code",
+    "country_of_origin": "\"Country of Origin\" line",
+    "inspection_authority": "\"Inspection authority\" line",
+    "inspection_officer_detail": "\"Inspection Officer\" - who the officer is detailed by",
+    "place_of_inspection": "\"Place of Inspection\" line",
+    "ca_paying_authority": "Terms of Payment - who makes payment",
+    "secrecy_authority": "\"Secrecy\" clause - the authority who can release information",
+}
+
+# name -> which suggested dict it lives in, for tag_document_scope() below.
+DOCUMENT_FIELD_SETS = {
+    "CS": SUGGESTED_CS_FIELDS,
+    "PP": SUGGESTED_PP_FIELDS,
+    "CA": SUGGESTED_CA_FIELDS,
+}
+
+
+def tag_document_scope(tag_name: str) -> tuple:
+    """Which suggested document(s) a tag name belongs to - e.g. ("CA",),
+    or ("PP", "CA") for one shared across two (none exist today, but nothing
+    stops a tag name from being added to more than one dict above). Empty
+    tuple means it's not one of the built-in suggested names at all - a
+    genuinely ad-hoc tag whose document we have no way to know."""
+    return tuple(doc for doc, fields in DOCUMENT_FIELD_SETS.items() if tag_name in fields)
+
+
+def classify_fields_by_scope(fields: list) -> dict:
+    """Buckets a list of CustomField rows for display: "CS"/"PP"/"CA" for
+    a tag used in exactly one document, "shared" for 2 (of today's 3),
+    "global" for all 3 (every known document - reserved for that, not a
+    stand-in for "not department-scoped"), "other" for anything not in
+    any suggested list."""
+    buckets: dict = {"CS": [], "PP": [], "CA": [], "shared": [], "global": [], "other": []}
+    total_docs = len(DOCUMENT_FIELD_SETS)
+    for f in fields:
+        scope = tag_document_scope(f.tag_name)
+        if not scope:
+            buckets["other"].append(f)
+        elif len(scope) == total_docs:
+            buckets["global"].append(f)
+        elif len(scope) > 1:
+            buckets["shared"].append(f)
+        else:
+            buckets[scope[0]].append(f)
+    return buckets
 
 _TAG_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 
@@ -231,4 +288,33 @@ def delete_group(session: Session, group_id: int) -> None:
     for field in list_custom_fields(session, group_id=group_id):
         session.delete(field)
     session.delete(group)
+    session.commit()
+
+
+def bulk_set_group_fields(session: Session, group_id: int, values: dict) -> None:
+    """The per-department "Department profile" form (Settings > Custom
+    Fields) saves every PP/CA field for one department in a single
+    submit, rather than the one-at-a-time add/edit flow. `values` is
+    {tag_name: value} for every field on that form, checked or not - a
+    blank value *deletes* that field (falling back to the global value,
+    if any) instead of saving an empty string, matching how clearing a
+    field already works in the one-at-a-time flow. Only ever called with
+    the built-in SUGGESTED_PP_FIELDS/SUGGESTED_CA_FIELDS tag names, so
+    unlike create_custom_field() this skips validate_tag_name() - those
+    names are already known-valid, hardcoded constants, never admin input."""
+    existing = {f.tag_name: f for f in list_custom_fields(session, group_id=group_id)}
+    for tag_name, raw_value in values.items():
+        value = (raw_value or "").strip()
+        current = existing.get(tag_name)
+        if not value:
+            if current is not None:
+                session.delete(current)
+            continue
+        if current is not None:
+            current.value = value
+            session.add(current)
+        else:
+            session.add(
+                CustomField(group_id=group_id, tag_name=tag_name, label=tag_name.replace("_", " ").title(), value=value)
+            )
     session.commit()

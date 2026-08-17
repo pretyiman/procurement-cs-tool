@@ -170,6 +170,54 @@ def test_custom_fields_dict_for_tender_resolves_via_department():
         assert custom_fields_module.custom_fields_dict_for_tender(session, None)["initiator_name"] == "Global Name"
 
 
+def test_tag_document_scope_reports_which_documents_use_a_tag():
+    assert custom_fields_module.tag_document_scope("prep_by_designation") == ("CS",)
+    assert custom_fields_module.tag_document_scope("pp_paying_authority") == ("PP",)
+    assert custom_fields_module.tag_document_scope("indentor_name") == ("CA",)
+    assert custom_fields_module.tag_document_scope("not_a_suggested_tag") == ()
+
+
+def test_classify_fields_by_scope_buckets_by_document_overlap():
+    with _fresh_session() as session:
+        cs_field = custom_fields_module.create_custom_field(session, "prep_by_designation", "Prep By", "Clerk")
+        pp_field = custom_fields_module.create_custom_field(session, "pp_paying_authority", "Paying Authority", "Finance")
+        ca_field = custom_fields_module.create_custom_field(session, "indentor_name", "Indentor", "Director")
+        other_field = custom_fields_module.create_custom_field(session, "ad_hoc_note", "Ad Hoc Note", "Something")
+
+        buckets = custom_fields_module.classify_fields_by_scope([cs_field, pp_field, ca_field, other_field])
+        assert buckets["CS"] == [cs_field]
+        assert buckets["PP"] == [pp_field]
+        assert buckets["CA"] == [ca_field]
+        assert buckets["other"] == [other_field]
+        assert buckets["shared"] == []
+        assert buckets["global"] == []
+
+
+def test_bulk_set_group_fields_creates_updates_and_deletes_on_blank():
+    with _fresh_session() as session:
+        dept = Department(name="Department A")
+        session.add(dept)
+        session.commit()
+        session.refresh(dept)
+        group = custom_fields_module.create_group(session, "Department A", dept.id)
+
+        custom_fields_module.bulk_set_group_fields(
+            session, group.id, {"indentor_name": "Director Procurement", "cost_head": "Fund 1/2/3"}
+        )
+        values = custom_fields_module.custom_fields_dict(session, group_id=group.id)
+        assert values["indentor_name"] == "Director Procurement"
+        assert values["cost_head"] == "Fund 1/2/3"
+
+        # Re-submitting with one field changed and one blanked out: updates the
+        # first, deletes the override for the second (falls back to global/none).
+        custom_fields_module.bulk_set_group_fields(
+            session, group.id, {"indentor_name": "Director SCM", "cost_head": "  "}
+        )
+        values = custom_fields_module.custom_fields_dict(session, group_id=group.id)
+        assert values["indentor_name"] == "Director SCM"
+        assert "cost_head" not in values
+
+
 def test_delete_group_cascades_its_fields():
     with _fresh_session() as session:
         dept = Department(name="Department A")
@@ -365,6 +413,50 @@ def test_settings_page_rejects_second_group_for_same_department():
         assert "error=" in resp.headers["location"]
         with Session(engine) as session:
             assert len(session.exec(select(CustomFieldGroup)).all()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_settings_page_department_profile_saves_all_pp_ca_fields_in_one_submit():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            dept_id = dept.id
+
+        client.post("/settings/custom-field-groups", data={"name": "Department A", "department_id": str(dept_id)})
+        with Session(engine) as session:
+            group = session.exec(select(CustomFieldGroup)).one()
+            group_id = group.id
+
+        resp = client.post(
+            f"/settings/custom-field-groups/{group_id}/profile",
+            data={"indentor_name": "Director Procurement", "pp_paying_authority": "Finance Directorate"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/settings/custom-fields?saved=1"
+
+        with Session(engine) as session:
+            values = custom_fields_module.custom_fields_dict(session, group_id=group_id)
+            assert values["indentor_name"] == "Director Procurement"
+            assert values["pp_paying_authority"] == "Finance Directorate"
+
+        resp = client.get("/settings/custom-fields")
+        assert "Director Procurement" in resp.text
+        assert "Finance Directorate" in resp.text
+
+        # Blanking a field in a re-submit removes the override entirely.
+        client.post(
+            f"/settings/custom-field-groups/{group_id}/profile",
+            data={"indentor_name": "", "pp_paying_authority": "Finance Directorate"},
+        )
+        with Session(engine) as session:
+            values = custom_fields_module.custom_fields_dict(session, group_id=group_id)
+            assert "indentor_name" not in values
+            assert values["pp_paying_authority"] == "Finance Directorate"
     finally:
         app.dependency_overrides.clear()
 
