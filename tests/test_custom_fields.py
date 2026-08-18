@@ -193,7 +193,7 @@ def test_classify_fields_by_scope_buckets_by_document_overlap():
         assert buckets["global"] == []
 
 
-def test_bulk_set_group_fields_creates_updates_and_deletes_on_blank():
+def test_bulk_set_fields_creates_updates_and_deletes_on_blank():
     with _fresh_session() as session:
         dept = Department(name="Department A")
         session.add(dept)
@@ -201,7 +201,7 @@ def test_bulk_set_group_fields_creates_updates_and_deletes_on_blank():
         session.refresh(dept)
         group = custom_fields_module.create_group(session, "Department A", dept.id)
 
-        custom_fields_module.bulk_set_group_fields(
+        custom_fields_module.bulk_set_fields(
             session, group.id, {"indentor_name": "Director Procurement", "cost_head": "Fund 1/2/3"}
         )
         values = custom_fields_module.custom_fields_dict(session, group_id=group.id)
@@ -210,12 +210,19 @@ def test_bulk_set_group_fields_creates_updates_and_deletes_on_blank():
 
         # Re-submitting with one field changed and one blanked out: updates the
         # first, deletes the override for the second (falls back to global/none).
-        custom_fields_module.bulk_set_group_fields(
+        custom_fields_module.bulk_set_fields(
             session, group.id, {"indentor_name": "Director SCM", "cost_head": "  "}
         )
         values = custom_fields_module.custom_fields_dict(session, group_id=group.id)
         assert values["indentor_name"] == "Director SCM"
         assert "cost_head" not in values
+
+
+def test_bulk_set_fields_handles_organization_wide_scope():
+    with _fresh_session() as session:
+        custom_fields_module.bulk_set_fields(session, None, {"pp_paying_authority": "Finance Directorate"})
+        values = custom_fields_module.custom_fields_dict(session)
+        assert values["pp_paying_authority"] == "Finance Directorate"
 
 
 def test_delete_group_cascades_its_fields():
@@ -316,59 +323,54 @@ def test_cs_excel_strips_illegal_control_characters_from_pasted_labels():
         assert not any(isinstance(v, str) and "\x0b" in v for v in values)
 
 
-# --- Full HTTP round trip ----------------------------------------------------
+# --- Full HTTP round trip: the "Manage Tags" popup ---------------------------
 
 
-def test_settings_page_create_then_field_appears_in_suggestions_until_used():
+def test_manage_tags_saves_organization_wide_fields_in_one_submit():
     client, engine = _make_client()
     try:
         resp = client.get("/settings/custom-fields")
-        assert "prep_by_designation" in resp.text  # suggested, not yet created
+        assert "prep_by_designation" in resp.text  # suggested, not yet set
 
         resp = client.post(
-            "/settings/custom-fields",
-            data={"tag_name": "prep_by_designation", "label": "Prep By - Designation", "value": "Junior Clerk"},
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "", "prep_by_designation": "Junior Clerk", "pp_paying_authority": "Finance"},
             follow_redirects=False,
         )
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/settings/custom-fields?saved=1"
+        assert resp.headers["location"] == "/settings/custom-fields?saved=1&open=1"
+
+        with Session(engine) as session:
+            values = custom_fields_module.custom_fields_dict(session)
+            assert values["prep_by_designation"] == "Junior Clerk"
+            assert values["pp_paying_authority"] == "Finance"
 
         resp = client.get("/settings/custom-fields")
         assert "Junior Clerk" in resp.text
-
-        with Session(engine) as session:
-            fields = session.exec(select(CustomField)).all()
-            assert len(fields) == 1
-            assert fields[0].tag_name == "prep_by_designation"
     finally:
         app.dependency_overrides.clear()
 
 
-def test_settings_page_rejects_reserved_and_duplicate_names():
+def test_manage_tags_blank_value_removes_a_saved_field():
     client, engine = _make_client()
     try:
-        resp = client.post(
-            "/settings/custom-fields",
-            data={"tag_name": "contract_value", "label": "Sneaky", "value": "x"},
-            follow_redirects=False,
+        client.post(
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "", "pp_paying_authority": "Finance"},
         )
-        assert "error=" in resp.headers["location"]
-
-        client.post("/settings/custom-fields", data={"tag_name": "dup", "label": "First", "value": "1"})
-        resp = client.post(
-            "/settings/custom-fields",
-            data={"tag_name": "dup", "label": "Second", "value": "2"},
-            follow_redirects=False,
-        )
-        assert "error=" in resp.headers["location"]
-
         with Session(engine) as session:
-            assert len(session.exec(select(CustomField)).all()) == 1
+            assert custom_fields_module.custom_fields_dict(session)["pp_paying_authority"] == "Finance"
+
+        client.post("/settings/custom-fields/manage-tags", data={"department_id": "", "pp_paying_authority": ""})
+        with Session(engine) as session:
+            assert "pp_paying_authority" not in custom_fields_module.custom_fields_dict(session)
     finally:
         app.dependency_overrides.clear()
 
 
-def test_settings_page_create_group_add_field_then_delete_group():
+def test_manage_tags_auto_creates_department_profile_on_first_save():
+    """No separate "create a profile" step - saving a value for a
+    department that has no CustomFieldGroup yet creates one on the fly."""
     client, engine = _make_client()
     try:
         with Session(engine) as session:
@@ -377,66 +379,120 @@ def test_settings_page_create_group_add_field_then_delete_group():
             session.commit()
             dept_id = dept.id
 
+        with Session(engine) as session:
+            assert session.exec(select(CustomFieldGroup)).all() == []
+
         resp = client.post(
-            "/settings/custom-field-groups",
-            data={"name": "Department A", "department_id": str(dept_id)},
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": str(dept_id), "indentor_name": "Director Procurement"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert f"department_id={dept_id}" in resp.headers["location"]
+
+        with Session(engine) as session:
+            group = session.exec(select(CustomFieldGroup)).one()
+            assert group.department_id == dept_id
+            assert custom_fields_module.custom_fields_dict(session, group_id=group.id)["indentor_name"] == (
+                "Director Procurement"
+            )
+
+        resp = client.get(f"/settings/custom-fields?department_id={dept_id}")
+        assert "Director Procurement" in resp.text
+        assert "Department A" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_manage_tags_reuses_existing_group_instead_of_creating_a_duplicate():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            dept_id = dept.id
+            group = custom_fields_module.create_group(session, "Department A Profile", dept_id)
+            group_id = group.id
+
+        client.post(
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": str(dept_id), "indentor_name": "Director Procurement"},
+        )
+        with Session(engine) as session:
+            assert len(session.exec(select(CustomFieldGroup)).all()) == 1
+            assert (
+                custom_fields_module.custom_fields_dict(session, group_id=group_id)["indentor_name"]
+                == "Director Procurement"
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_manage_tags_add_new_field_without_leaving_the_page():
+    """Simulates the popup's "+ Add another field" row - submitted as
+    new_tag_name/new_tag_value alongside the known tags, in the same POST."""
+    client, engine = _make_client()
+    try:
+        resp = client.post(
+            "/settings/custom-fields/manage-tags",
+            data={
+                "department_id": "",
+                "new_tag_name": "store_keeper_name",
+                "new_tag_value": "M. Tariq",
+            },
             follow_redirects=False,
         )
         assert resp.status_code == 303
         assert "error=" not in resp.headers["location"]
 
         with Session(engine) as session:
-            group = session.exec(select(CustomFieldGroup)).one()
-            assert group.department_id == dept_id
+            field = session.exec(select(CustomField).where(CustomField.tag_name == "store_keeper_name")).one()
+            assert field.value == "M. Tariq"
+            assert field.group_id is None
+    finally:
+        app.dependency_overrides.clear()
 
+
+def test_manage_tags_rejects_reserved_and_duplicate_new_field_names():
+    client, engine = _make_client()
+    try:
         resp = client.post(
-            "/settings/custom-fields",
-            data={
-                "tag_name": "initiator_name",
-                "label": "Initiator",
-                "value": "Dept A Officer",
-                "group_id": str(group.id),
-            },
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "", "new_tag_name": "contract_value", "new_tag_value": "x"},
             follow_redirects=False,
         )
-        assert resp.status_code == 303
+        assert "error=" in resp.headers["location"]
 
-        resp = client.get("/settings/custom-fields")
-        assert "Dept A Officer" in resp.text
-        assert "Department A" in resp.text
+        resp = client.post(
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "", "new_tag_name": "pp_paying_authority", "new_tag_value": "x"},
+            follow_redirects=False,
+        )
+        assert "error=" in resp.headers["location"]  # collides with a known tag in this same scope
 
-        resp = client.post(f"/settings/custom-field-groups/{group.id}/delete", follow_redirects=False)
-        assert resp.status_code == 303
         with Session(engine) as session:
-            assert session.exec(select(CustomFieldGroup)).all() == []
             assert session.exec(select(CustomField)).all() == []
     finally:
         app.dependency_overrides.clear()
 
 
-def test_settings_page_rejects_second_group_for_same_department():
+def test_manage_tags_route_for_unknown_department_returns_error():
     client, engine = _make_client()
     try:
-        with Session(engine) as session:
-            dept = Department(name="Department A")
-            session.add(dept)
-            session.commit()
-            dept_id = dept.id
-
-        client.post("/settings/custom-field-groups", data={"name": "Group One", "department_id": str(dept_id)})
         resp = client.post(
-            "/settings/custom-field-groups",
-            data={"name": "Group Two", "department_id": str(dept_id)},
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "999999", "indentor_name": "x"},
             follow_redirects=False,
         )
         assert "error=" in resp.headers["location"]
         with Session(engine) as session:
-            assert len(session.exec(select(CustomFieldGroup)).all()) == 1
+            assert session.exec(select(CustomFieldGroup)).all() == []
     finally:
         app.dependency_overrides.clear()
 
 
-def test_settings_page_department_profile_saves_all_pp_ca_fields_in_one_submit():
+def test_delete_group_route_resets_a_departments_profile():
     client, engine = _make_client()
     try:
         with Session(engine) as session:
@@ -445,60 +501,17 @@ def test_settings_page_department_profile_saves_all_pp_ca_fields_in_one_submit()
             session.commit()
             dept_id = dept.id
 
-        client.post("/settings/custom-field-groups", data={"name": "Department A", "department_id": str(dept_id)})
-        with Session(engine) as session:
-            group = session.exec(select(CustomFieldGroup)).one()
-            group_id = group.id
-
-        resp = client.post(
-            f"/settings/custom-field-groups/{group_id}/profile",
-            data={"indentor_name": "Director Procurement", "pp_paying_authority": "Finance Directorate"},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-        assert resp.headers["location"] == "/settings/custom-fields?saved=1"
-
-        with Session(engine) as session:
-            values = custom_fields_module.custom_fields_dict(session, group_id=group_id)
-            assert values["indentor_name"] == "Director Procurement"
-            assert values["pp_paying_authority"] == "Finance Directorate"
-
-        resp = client.get("/settings/custom-fields")
-        assert "Director Procurement" in resp.text
-        assert "Finance Directorate" in resp.text
-
-        # Blanking a field in a re-submit removes the override entirely.
         client.post(
-            f"/settings/custom-field-groups/{group_id}/profile",
-            data={"indentor_name": "", "pp_paying_authority": "Finance Directorate"},
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": str(dept_id), "indentor_name": "Director Procurement"},
         )
         with Session(engine) as session:
-            values = custom_fields_module.custom_fields_dict(session, group_id=group_id)
-            assert "indentor_name" not in values
-            assert values["pp_paying_authority"] == "Finance Directorate"
-    finally:
-        app.dependency_overrides.clear()
+            group_id = session.exec(select(CustomFieldGroup)).one().id
 
-
-def test_settings_page_update_and_delete():
-    client, engine = _make_client()
-    try:
-        client.post("/settings/custom-fields", data={"tag_name": "my_field", "label": "Original", "value": "v1"})
-        with Session(engine) as session:
-            field_id = session.exec(select(CustomField)).one().id
-
-        resp = client.post(
-            f"/settings/custom-fields/{field_id}/update",
-            data={"label": "Updated", "value": "v2"},
-            follow_redirects=False,
-        )
+        resp = client.post(f"/settings/custom-field-groups/{group_id}/delete", follow_redirects=False)
         assert resp.status_code == 303
         with Session(engine) as session:
-            assert session.get(CustomField, field_id).value == "v2"
-
-        resp = client.post(f"/settings/custom-fields/{field_id}/delete", follow_redirects=False)
-        assert resp.status_code == 303
-        with Session(engine) as session:
-            assert session.get(CustomField, field_id) is None
+            assert session.exec(select(CustomFieldGroup)).all() == []
+            assert session.exec(select(CustomField)).all() == []
     finally:
         app.dependency_overrides.clear()

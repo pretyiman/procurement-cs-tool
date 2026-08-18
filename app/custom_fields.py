@@ -81,7 +81,7 @@ SUGGESTED_CS_FIELDS = {
 # Proposal showed they actually vary per department - each is now
 # {{ tag|default('...') }} in the template, so it renders exactly as
 # before until a same-named custom field is created (typically inside a
-# department's CustomFieldGroup - see the "Department profile" form).
+# department's CustomFieldGroup - see the "Manage Tags" popup).
 SUGGESTED_PP_FIELDS = {
     "pp_paying_authority": "Terms of Payment - who makes payment",
     "pp_prep_officer_rank_name": "Signature block - preparing officer's rank & name",
@@ -263,24 +263,6 @@ def create_group(session: Session, name: str, department_id: Optional[int]) -> C
     return group
 
 
-def update_group(session: Session, group_id: int, name: str) -> CustomFieldGroup:
-    """Department is deliberately not editable here - it's the whole point
-    of the group. Delete and recreate under the new department if needed."""
-    group = session.get(CustomFieldGroup, group_id)
-    if group is None:
-        raise ValueError("Group not found.")
-    name = name.strip()
-    if not name:
-        raise ValueError("Group name is required.")
-    existing = session.exec(select(CustomFieldGroup).where(CustomFieldGroup.name == name)).first()
-    if existing is not None and existing.id != group_id:
-        raise ValueError(f'A group named "{name}" already exists.')
-    group.name = name
-    session.add(group)
-    session.commit()
-    return group
-
-
 def delete_group(session: Session, group_id: int) -> None:
     group = session.get(CustomFieldGroup, group_id)
     if group is None:
@@ -291,17 +273,24 @@ def delete_group(session: Session, group_id: int) -> None:
     session.commit()
 
 
-def bulk_set_group_fields(session: Session, group_id: int, values: dict) -> None:
-    """The per-department "Department profile" form (Settings > Custom
-    Fields) saves every PP/CA field for one department in a single
-    submit, rather than the one-at-a-time add/edit flow. `values` is
-    {tag_name: value} for every field on that form, checked or not - a
-    blank value *deletes* that field (falling back to the global value,
-    if any) instead of saving an empty string, matching how clearing a
-    field already works in the one-at-a-time flow. Only ever called with
-    the built-in SUGGESTED_PP_FIELDS/SUGGESTED_CA_FIELDS tag names, so
-    unlike create_custom_field() this skips validate_tag_name() - those
-    names are already known-valid, hardcoded constants, never admin input."""
+def bulk_set_fields(session: Session, group_id: Optional[int], values: dict) -> None:
+    """The "Manage Tags" popup (Settings > Custom Fields) saves every tag
+    for one scope - organization-wide (group_id=None) or one department's
+    profile - in a single submit, rather than the one-at-a-time add/edit
+    flow. `values` is {tag_name: value} for every field the popup showed,
+    edited or not - a blank value *deletes* that field (falling back to
+    the next level up - a department profile falls back to the
+    organization-wide value if any, which falls back to nothing) instead
+    of saving an empty string, matching how clearing a field already
+    works in the one-at-a-time flow.
+
+    Every tag_name here must already be known-safe before this is called
+    - either one of the built-in SUGGESTED_*_FIELDS constants, or an
+    existing CustomField's tag_name (created earlier through
+    create_custom_field(), which already validated it) - so this
+    deliberately skips validate_tag_name() itself. The caller is
+    responsible for validating any genuinely new tag name (e.g. from the
+    popup's "+ Add another field" rows) before it ends up in `values`."""
     existing = {f.tag_name: f for f in list_custom_fields(session, group_id=group_id)}
     for tag_name, raw_value in values.items():
         value = (raw_value or "").strip()

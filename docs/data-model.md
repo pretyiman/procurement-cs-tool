@@ -236,14 +236,39 @@ need to, non-technical staff can still edit `ca_template.docx`/
 `pp_template.docx` directly in Word (Settings > Document Templates), same
 as any other wording change.
 
-`/settings/custom-fields` gives each `CustomFieldGroup` a "Department
-profile" form that shows all 15 PP/CA fields pre-filled in one place
-(organized under Purchase Proposal / Contract Award subheadings), backed
-by `custom_fields.bulk_set_group_fields()` - upserts a value, or deletes
-the group's override entirely if submitted blank (falling back to the
-organization-wide value, if any). The page also keeps the original
-one-at-a-time add/edit/delete flow, for genuinely ad-hoc tags outside
-this known 15-tag set (the `"other"` bucket above).
+`/settings/custom-fields` edits every tag through one "Manage Tags"
+popup (a native `<dialog>`, no JS framework) instead of a form per
+department. The popup handles one *scope* at a time - organization-wide
+(`group_id=None`) or one department's profile - selected via a dropdown
+at the top of the dialog; switching it reloads the same page with
+`?department_id=`, and a small page-load script re-opens the dialog
+automatically (detected via a `?open=1` marker) so the switch doesn't
+feel like leaving the page. Every tag relevant to that scope - the
+suggested ones (CS only for organization-wide, PP+CA for every scope)
+plus any already-saved ad-hoc ones - shows pre-filled in one list; a
+"+ Add another field" button inserts a new tag-name/value row via plain
+DOM manipulation (no reload, no fetch/AJAX), and one Save button posts
+the whole scope - known tags and newly-added ones together - to
+`POST /settings/custom-fields/manage-tags` in a single submit, backed by
+`custom_fields.bulk_set_fields()` (generalized from the older
+`bulk_set_group_fields()` to accept `group_id=None` too) - upserts a
+value, or deletes it entirely if submitted blank (falling back to the
+next scope up: a department profile falls back to the organization-wide
+value, if any). Any brand-new tag name from "+ Add another field" is
+validated (`validate_tag_name()` - same format/reserved-name checks as
+before) before being accepted; a department with no `CustomFieldGroup`
+yet gets one created automatically on first save - no separate "create a
+profile" step exists anymore. A summary table above the popup (one row
+per scope, a tag count, and Manage/Reset actions) shows what's currently
+set without needing to open anything.
+
+This replaced an earlier per-department "card" layout (round 4) that had
+two similarly-labelled Save buttons in the same card - one that renamed
+the profile, one that actually saved values - which is what caused a
+real "I saved values and they're not there" bug report (see PLAN.md
+"Post-MVP round 6"); the underlying auto-resolve-by-department mechanism
+(`custom_fields_dict_for_tender()`) was never the problem and is
+unchanged by this round.
 
 ### ProposalSnapshot (frozen Purchase Proposal, one per tender)
 | field | type | notes |

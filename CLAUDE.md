@@ -180,12 +180,17 @@ app/
                                                # - each is now
                                                # {{ tag|default('original text') }},
                                                # so it renders unchanged until a
-                                               # same-named field exists, typically via
-                                               # bulk_set_group_fields() - the
-                                               # structured "Department profile" form
-                                               # that saves all 15 for one Custom
-                                               # Field Group in a single submit - see
-                                               # docs/data-model.md
+                                               # same-named field exists, typically set
+                                               # through the "Manage Tags" popup
+                                               # (custom_fields.html) via
+                                               # bulk_set_fields() - one scope
+                                               # (organization-wide or one department's
+                                               # profile) at a time, every known tag
+                                               # plus any newly-added ad-hoc ones in a
+                                               # single submit; auto-creates the
+                                               # department's CustomFieldGroup on first
+                                               # save, no separate "create profile" step
+                                               # - see docs/data-model.md
   template_manager.py                       # Settings > Document Templates:
                                              # download/upload/restore pp_template.docx
                                              # and ca_template.docx from the browser,
@@ -271,7 +276,29 @@ app/
     cs_labels.html                         # "/settings/cs-labels" — CS export title/
                                             # signature-block role names
     custom_fields.html                       # "/settings/custom-fields" — admin-
-                                              # defined {{ tag }} text fields
+                                              # defined {{ tag }} text fields. Read-only
+                                              # suggested-tag reference tables (CS/PP/
+                                              # CA) up top, then a "Tag values" summary
+                                              # table (one row per scope - Organization-
+                                              # wide + every department, tag count +
+                                              # Manage/Reset), and the "Manage Tags"
+                                              # popup (a native <dialog>, vanilla JS, no
+                                              # framework) - one scope at a time: a
+                                              # department selector up top (switching it
+                                              # does a full page reload, auto-reopening
+                                              # the dialog via the "open=1" query param
+                                              # and page-load script), every relevant
+                                              # tag pre-filled in one list (blank =
+                                              # remove), "+ Add another field" inserts a
+                                              # new tag-name/value row client-side with
+                                              # no page reload, one Save button posts
+                                              # everything together to
+                                              # /settings/custom-fields/manage-tags.
+                                              # Replaced the old per-department stacked-
+                                              # forms layout (two similarly-labelled
+                                              # "Save" buttons in the same card, which
+                                              # is what caused a real saved-value-not-
+                                              # showing report - see PLAN.md)
     settings_lock.html                         # "/settings/lock" — NEW, set/change/
                                                 # clear the optional local passcode
                                                 # (app/lock.py). Blank "Save" is a

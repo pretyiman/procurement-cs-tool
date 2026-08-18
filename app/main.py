@@ -20,18 +20,15 @@ from .custom_fields import (
     SUGGESTED_CA_FIELDS,
     SUGGESTED_CS_FIELDS,
     SUGGESTED_PP_FIELDS,
-    bulk_set_group_fields,
-    classify_fields_by_scope,
-    create_custom_field,
+    bulk_set_fields,
     create_group,
     custom_fields_dict_for_tender,
-    delete_custom_field,
     delete_group,
     list_custom_fields,
     list_groups,
+    resolve_group_for_department,
     tag_document_scope,
-    update_custom_field,
-    update_group,
+    validate_tag_name,
 )
 from .db import create_db_and_tables, engine, get_session
 from .document_labels import get_document_labels
@@ -1837,7 +1834,14 @@ def update_cs_labels(
 
 
 @app.get("/settings/custom-fields", response_class=HTMLResponse)
-def custom_fields_form(request: Request, error: str = "", saved: str = "", session: Session = Depends(get_session)):
+def custom_fields_form(
+    request: Request,
+    error: str = "",
+    saved: str = "",
+    department_id: str = "",
+    open_popup_param: str = Query("", alias="open"),
+    session: Session = Depends(get_session),
+):
     fields = list_custom_fields(session)
     used_suggestions = {f.tag_name for f in fields}
 
@@ -1851,127 +1855,133 @@ def custom_fields_form(request: Request, error: str = "", saved: str = "", sessi
     cs_suggestions = _suggestions(SUGGESTED_CS_FIELDS)
     pp_suggestions = _suggestions(SUGGESTED_PP_FIELDS)
     ca_suggestions = _suggestions(SUGGESTED_CA_FIELDS)
-    global_buckets = classify_fields_by_scope(fields)
 
-    pp_ca_tag_names = set(SUGGESTED_PP_FIELDS) | set(SUGGESTED_CA_FIELDS)
+    # "Manage Tags" popup - one scope at a time: organization-wide
+    # (selected_dept_id=None) or one department's profile. CS fields are
+    # deliberately only offered organization-wide - see SUGGESTED_CS_FIELDS.
+    selected_dept_id = int(department_id) if department_id.strip() else None
+    selected_dept_name = "Organization-wide"
+    if selected_dept_id is not None:
+        selected_dept = session.get(Department, selected_dept_id)
+        if selected_dept is None:
+            selected_dept_id = None  # stale/deleted department in the URL - fall back cleanly
+        else:
+            selected_dept_name = selected_dept.name
+
+    scope_group = resolve_group_for_department(session, selected_dept_id) if selected_dept_id else None
+    scope_group_id = scope_group.id if scope_group else None
+    scope_existing = {f.tag_name: f.value for f in list_custom_fields(session, group_id=scope_group_id)}
+    scope_suggested = {}
+    if selected_dept_id is None:
+        scope_suggested.update(SUGGESTED_CS_FIELDS)
+    scope_suggested.update(SUGGESTED_PP_FIELDS)
+    scope_suggested.update(SUGGESTED_CA_FIELDS)
+    manage_rows = [
+        {"tag_name": n, "description": d, "value": scope_existing.get(n, "")} for n, d in scope_suggested.items()
+    ] + [
+        {"tag_name": n, "description": "", "value": v} for n, v in scope_existing.items() if n not in scope_suggested
+    ]
+
     groups = list_groups(session)
-    groups_view = []
-    for g in groups:
-        group_fields = list_custom_fields(session, group_id=g.id)
-        group_values = {f.tag_name: f.value for f in group_fields}
-        groups_view.append(
+    group_by_dept_id = {g.department_id: g for g in groups}
+    all_departments = session.exec(select(Department).order_by(Department.name)).all()
+    scope_rows = [
+        {"id": "", "name": "Organization-wide", "count": len(list_custom_fields(session, group_id=None)), "group_id": None}
+    ]
+    for d in all_departments:
+        g = group_by_dept_id.get(d.id)
+        scope_rows.append(
             {
-                "group": g,
-                # Only the "Other" (non PP/CA-suggested) fields show in the
-                # old flat add/edit list now - the 15 known ones live in
-                # the structured profile form below instead, so nothing
-                # appears twice.
-                "fields": [f for f in group_fields if f.tag_name not in pp_ca_tag_names],
-                "profile_pp": [
-                    {"tag_name": n, "description": d, "value": group_values.get(n, "")}
-                    for n, d in SUGGESTED_PP_FIELDS.items()
-                ],
-                "profile_ca": [
-                    {"tag_name": n, "description": d, "value": group_values.get(n, "")}
-                    for n, d in SUGGESTED_CA_FIELDS.items()
-                ],
+                "id": d.id,
+                "name": d.name,
+                "count": len(list_custom_fields(session, group_id=g.id)) if g else 0,
+                "group_id": g.id if g else None,
             }
         )
-    grouped_department_ids = {g.department_id for g in groups}
-    all_departments = session.exec(select(Department).order_by(Department.name)).all()
-    departments_without_group = [d for d in all_departments if d.id not in grouped_department_ids]
+
     return templates.TemplateResponse(
         request,
         "custom_fields.html",
         {
-            "global_buckets": global_buckets,
             "cs_suggestions": cs_suggestions,
             "pp_suggestions": pp_suggestions,
             "ca_suggestions": ca_suggestions,
             "error": error,
             "saved": bool(saved),
-            "groups_view": groups_view,
-            "departments_without_group": departments_without_group,
+            "manage_rows": manage_rows,
+            "selected_dept_id": selected_dept_id,
+            "selected_dept_name": selected_dept_name,
+            "scope_rows": scope_rows,
+            "open_popup": bool(open_popup_param),
         },
     )
 
 
-@app.post("/settings/custom-fields")
-def create_custom_field_route(
-    tag_name: str = Form(...),
-    label: str = Form(...),
-    value: str = Form(""),
-    group_id: str = Form(""),
-    session: Session = Depends(get_session),
-):
-    try:
-        create_custom_field(session, tag_name, label, value, group_id=int(group_id) if group_id.strip() else None)
-    except ValueError as e:
-        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+@app.post("/settings/custom-fields/manage-tags")
+async def manage_tags_route(request: Request, session: Session = Depends(get_session)):
+    """The "Manage Tags" popup's single Save button - every tag for one
+    scope (organization-wide, or one department's profile) in one submit,
+    including any new ad-hoc rows added via "+ Add another field" without
+    leaving the page (see custom_fields.html). Auto-creates the
+    department's CustomFieldGroup on first save - no separate "create
+    profile" step required."""
+    form = await request.form()
+    department_id_raw = str(form.get("department_id", "")).strip()
+    department_id = int(department_id_raw) if department_id_raw else None
 
+    def _redirect(*, error: str = "", saved: bool = False) -> RedirectResponse:
+        qs = f"department_id={department_id}" if department_id is not None else ""
+        if error:
+            qs += ("&" if qs else "") + f"error={quote(error)}"
+        elif saved:
+            qs += ("&" if qs else "") + "saved=1"
+        qs += ("&" if qs else "") + "open=1"
+        return RedirectResponse(f"/settings/custom-fields?{qs}", status_code=303)
 
-@app.post("/settings/custom-field-groups")
-def create_custom_field_group_route(
-    name: str = Form(...),
-    department_id: str = Form(...),
-    session: Session = Depends(get_session),
-):
-    if not department_id.strip():
-        return RedirectResponse(
-            f"/settings/custom-fields?error={quote('Pick a department for the new group.')}", status_code=303
-        )
-    try:
-        create_group(session, name, int(department_id))
-    except ValueError as e:
-        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+    group_id = None
+    if department_id is not None:
+        department = session.get(Department, department_id)
+        if department is None:
+            return _redirect(error="Department not found.")
+        group = resolve_group_for_department(session, department_id)
+        if group is None:
+            group = create_group(session, f"{department.name} Profile", department_id)
+        group_id = group.id
 
+    known_names = set(SUGGESTED_PP_FIELDS) | set(SUGGESTED_CA_FIELDS)
+    if department_id is None:
+        known_names |= set(SUGGESTED_CS_FIELDS)
+    known_names |= {f.tag_name for f in list_custom_fields(session, group_id=group_id)}
 
-@app.post("/settings/custom-field-groups/{group_id}/update")
-def update_custom_field_group_route(group_id: int, name: str = Form(...), session: Session = Depends(get_session)):
-    try:
-        update_group(session, group_id, name)
-    except ValueError as e:
-        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
+    values = {name: str(form.get(name, "")) for name in known_names}
+
+    new_names = form.getlist("new_tag_name")
+    new_values = form.getlist("new_tag_value")
+    for raw_name, raw_value in zip(new_names, new_values):
+        tag_name = str(raw_name).strip()
+        value = str(raw_value)
+        if not tag_name and not value.strip():
+            continue  # an unused blank row the user added but never filled in
+        if not tag_name:
+            return _redirect(error="A new field needs a tag name.")
+        try:
+            validate_tag_name(tag_name)
+        except ValueError as e:
+            return _redirect(error=str(e))
+        if tag_name in values:
+            return _redirect(error=f'"{tag_name}" is already a field in this scope.')
+        values[tag_name] = value
+
+    bulk_set_fields(session, group_id, values)
+    return _redirect(saved=True)
 
 
 @app.post("/settings/custom-field-groups/{group_id}/delete")
 def delete_custom_field_group_route(group_id: int, session: Session = Depends(get_session)):
+    """"Reset" a department's whole profile - e.g. the department was
+    merged/retired, or the admin wants it to fall back to the
+    organization-wide values entirely rather than clearing fields one by
+    one. Not reachable for the "" (organization-wide) scope - that one
+    always exists, nothing to reset it away from."""
     delete_group(session, group_id)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
-
-
-@app.post("/settings/custom-field-groups/{group_id}/profile")
-async def save_custom_field_group_profile_route(
-    group_id: int, request: Request, session: Session = Depends(get_session)
-):
-    """The structured "Department profile" form - saves every PP/CA field
-    for this department in one submit (see bulk_set_group_fields), instead
-    of the one-at-a-time add/edit flow the rest of Custom Fields still uses
-    for anything outside that known 15-tag set."""
-    form = await request.form()
-    values = {tag_name: str(form.get(tag_name, "")) for tag_name in {**SUGGESTED_PP_FIELDS, **SUGGESTED_CA_FIELDS}}
-    bulk_set_group_fields(session, group_id, values)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
-
-
-@app.post("/settings/custom-fields/{field_id}/update")
-def update_custom_field_route(
-    field_id: int,
-    label: str = Form(...),
-    value: str = Form(""),
-    session: Session = Depends(get_session),
-):
-    try:
-        update_custom_field(session, field_id, label, value)
-    except ValueError as e:
-        return RedirectResponse(f"/settings/custom-fields?error={quote(str(e))}", status_code=303)
-    return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)
-
-
-@app.post("/settings/custom-fields/{field_id}/delete")
-def delete_custom_field_route(field_id: int, session: Session = Depends(get_session)):
-    delete_custom_field(session, field_id)
     return RedirectResponse("/settings/custom-fields?saved=1", status_code=303)

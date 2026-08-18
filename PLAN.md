@@ -649,6 +649,77 @@ and `@media print` rendering via Playwright screenshots.
 
 ---
 
+## Post-MVP round 6 ("Manage Tags" popup replaces the per-department cards)
+
+Triggered by a real usability bug report: round 4's per-department card had
+two similarly-labelled "Save" buttons in the same card - one that only
+renamed the profile, one (further down, under the actual PP/CA fields)
+that actually saved tag values. Clicking the wrong one looked exactly
+like "I saved values and they didn't show" - reproduced end-to-end via
+Playwright (fill a field, click Save, reload, value persisted correctly)
+to confirm the mechanism itself had no bug, only the UI trap did.
+
+Replaced the whole per-department-cards layout with one popup ("Manage
+Tags" - a native `<dialog>`, vanilla JS, no framework, consistent with
+the project's no-JS-build-tooling stance):
+- A "Tag values" summary table (`/settings/custom-fields`) - one row per
+  scope (Organization-wide + every department), a tag count, and
+  Manage/Reset actions - so "what's currently set for X" is visible
+  without opening anything.
+- The popup itself: a department selector at the top (switching it does a
+  full page reload back to the same route with `?department_id=`, which
+  the page-load script detects via a `?open=1` marker and re-opens the
+  dialog with - no AJAX), every relevant tag for that scope in one
+  pre-filled list (CS suggested tags only appear for Organization-wide -
+  see `SUGGESTED_CS_FIELDS`; PP+CA appear for every scope; blank = remove
+  that value), a "+ Add another field" button that inserts a new tag-
+  name/value row via plain DOM manipulation with **no page reload and no
+  fetch/AJAX call** - both rows just submit together with everything else
+  in the one form - and a single Save button.
+- `custom_fields.bulk_set_group_fields()` generalized to
+  `bulk_set_fields()` - now takes `group_id: Optional[int]` (organization-
+  wide is `None`, not a special case) instead of being hardcoded to the
+  15 PP/CA tag names; the route validates any genuinely new tag name
+  (from "+ Add another field") via `validate_tag_name()` - same reserved-
+  name/format checks as the old one-at-a-time flow - before calling it.
+- Saving a value for a department with no `CustomFieldGroup` yet now
+  auto-creates one (named `f"{department.name} Profile"`) in the same
+  request - the old separate "Create a department profile" step is gone
+  entirely, directly closing the "repeat the process with each
+  departmental change" complaint that started this round: set a
+  department's values once, ever, through the popup; every future RFQ for
+  that department resolves them automatically via
+  `custom_fields_dict_for_tender()` (unchanged, already worked this way
+  since round 4 - confirmed by testing it live against two real
+  departments before touching the UI at all).
+- Removed now-dead one-at-a-time routes/UI (`create_custom_field_route`,
+  `update_custom_field_route`, `delete_custom_field_route`,
+  `create_custom_field_group_route`, `update_custom_field_group_route`,
+  the old `.../profile` route) - superseded by the single manage-tags
+  route. The underlying `create_custom_field()`/`update_custom_field()`/
+  `delete_custom_field()` functions stay (still directly unit-tested,
+  reusable), but `update_group()` was deleted outright - it had no route
+  and no test left referencing it. `.../custom-field-groups/{id}/delete`
+  (renaming to "Reset") stays as the one destructive action outside the
+  main save flow.
+
+`pytest tests/` (167 passed, 5 skipped) passes as of this round; rewrote
+the HTTP round-trip tests in `test_custom_fields.py` around
+`/settings/custom-fields/manage-tags` (organization-wide save, blank-
+removes-a-field, auto-create-on-first-save, reuse-existing-group,
+add-a-new-field-in-the-same-submit, reserved/duplicate-name rejection,
+unknown-department rejection) and the kept delete/reset route. Live-
+verified via Playwright against a running dev server against two real
+departments: opened the popup, switched departments (confirmed the
+dialog reopens with that department's own values, not the previous
+one's), filled a known field and an ad-hoc new one in a single submit,
+confirmed both persisted and reappeared pre-filled on reopen, confirmed
+the summary table's tag count updated, triggered the reserved-name error
+path (previous values stayed intact, no data loss), and confirmed Reset
+clears a department back to zero tags.
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles
