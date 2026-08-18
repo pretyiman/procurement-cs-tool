@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Procurement CS Tool</title>
+  <style>
+    :root {
+      --canvas: #4b4d57; --toolbar-bg: #232532; --toolbar-text: #e9e9ed; --accent: #9184d9;
+      --page-bg: #ffffff; --page-text: #1a1a1a; --page-border: #d8d8de;
+      --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-doc: "Calibri", "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: var(--canvas); font-family: var(--font-ui); }
+
+    .toolbar {
+      position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.7rem 1.25rem; background: var(--toolbar-bg); color: var(--toolbar-text);
+      box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+    }
+    .toolbar a, .toolbar button {
+      font-family: var(--font-ui); font-size: 13.5px; font-weight: 500; cursor: pointer;
+      color: var(--toolbar-text); background: transparent; border: 1px solid color-mix(in srgb, var(--toolbar-text) 25%, transparent);
+      border-radius: 6px; padding: 0.4rem 0.8rem; text-decoration: none;
+    }
+    .toolbar a:hover, .toolbar button:hover { background: color-mix(in srgb, var(--toolbar-text) 10%, transparent); }
+    .toolbar button.primary { color: var(--accent); border-color: var(--accent); }
+    .toolbar button.primary:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+    .toolbar .title { font-size: 13px; opacity: 0.75; margin-left: auto; }
+
+    .page-wrap { display: flex; justify-content: center; padding: 2.5rem 1rem; }
+    .page {
+      width: min(850px, 100%); background: var(--page-bg); color: var(--page-text);
+      border: 1px solid var(--page-border); box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+      padding: 1in 0.9in; font-family: var(--font-doc); font-size: 11pt; line-height: 1.5;
+    }
+    .page :first-child { margin-top: 0; }
+    .page p { margin: 0 0 0.6em; }
+    .page h1, .page h2, .page h3 { font-family: var(--font-doc); margin: 1em 0 0.5em; }
+    .page table { border-collapse: collapse; width: 100%; margin: 0.75em 0; }
+    .page table td, .page table th { border: 1px solid #999; padding: 0.3em 0.5em; vertical-align: top; }
+    .page ul, .page ol { margin: 0 0 0.6em; padding-left: 1.5em; }
+    .page img { max-width: 100%; }
+
+    @media print {
+      .toolbar { display: none; }
+      body { background: var(--page-bg); }
+      .page-wrap { padding: 0; }
+      .page { width: auto; border: none; box-shadow: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <a href="{{ back_url }}">&larr; Back</a>
+    <button type="button" class="primary" onclick="window.print()">Print</button>
+    <span class="title">{{ title }}</span>
+  </div>
+  <div class="page-wrap">
+    <div class="page">
+      {{ doc_html | safe }}
+    </div>
+  </div>
+</body>
+</html>

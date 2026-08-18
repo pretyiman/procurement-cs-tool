@@ -594,6 +594,59 @@ tests cover `tag_document_scope()`, `classify_fields_by_scope()`,
 and an HTTP round trip through the new `/settings/custom-field-groups/
 {id}/profile` route.
 
+**Follow-up bug fix**: saving a CS Label containing a pasted-from-Word
+control character (e.g. a vertical tab, `\x0b`) crashed the CS Excel
+export outright with `openpyxl.utils.exceptions.IllegalCharacterError` -
+openpyxl validates on cell-value assignment, not at save time, so
+sanitizing has to happen at every write. Fixed by routing all 144
+`ws.cell(...)` call sites across every export function in `excel_io.py`
+through a new `_cell()` wrapper that strips illegal control characters
+first (`_sanitize_workbook_text()` kept as a cheap defense-in-depth pass
+right before save). Regression test reproduces the exact reported crash.
+
+---
+
+## Post-MVP round 5 ("View & Print" - browser view of PP/CA, no download step)
+
+Requested after discussing (and rejecting) building an in-house HTML/PDF
+editor to replace the .docx workflow entirely - see session notes. Landed
+on a much smaller "Approach B": reuse the *already-rendered* PP/CA .docx
+(same `generate_contract_award()`/`generate_purchase_proposal_doc()` call
+the Download buttons make - same context, same custom-field/department-
+profile merge) and convert that output to HTML for direct browser
+viewing/printing via `mammoth` (`app/docx_view.py`, pure Python, offline,
+no new JS tooling) - deliberately *not* a second hand-authored HTML
+template, so every dynamic and custom/shared/department-profile tag that
+appears in the downloaded .docx is guaranteed to appear in the browser
+view too, with nothing to keep in sync as templates or custom fields
+change later.
+
+Two new GET routes (`/tenders/{id}/proposal/contract/{supplier_id}/view`,
+`/tenders/{id}/proposal/pp-document/view`), a standalone
+`docx_view.html` page (does not extend `base.html` - styled to look like
+the actual printed page, not the app's dark theme; a sticky Back/Print
+toolbar hides itself in `@media print`), and a "View & Print" link next
+to the existing Download buttons on `contract_award.html`/
+`purchase_proposal.html` (only shown once a contract number/proposal
+actually exists, same gating as the download routes). Rejected using
+Google Docs/Sheets "offline" mode for this instead - it still requires a
+prior online sync to a Google account, which doesn't fit a local-first
+tool handling government procurement data, and there's no way to
+programmatically fill a Doc/Sheet without hitting Google's API online.
+
+Explicitly kept small and removable: one new module, one new template, no
+new DB/model surface - the .docx remains the source of truth and the only
+editable artifact, per the frozen "Word generation" tech decision.
+
+`pytest tests/` (164 passed, 5 skipped) passes as of this round; new
+`tests/test_docx_view.py` covers `docx_bytes_to_html()` carrying through
+both real per-contract data and a custom field, plus an HTTP round trip
+for both routes (including the "not yet issued" 400 cases). Live-verified
+against a running dev server - downloaded/viewed both pages for a real
+demo tender, confirmed a live-set custom field appeared in the view
+exactly as it would in the downloaded .docx, and checked both on-screen
+and `@media print` rendering via Playwright screenshots.
+
 ---
 
 ## Deferred to v2 (explicitly out of MVP scope)

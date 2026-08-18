@@ -285,6 +285,19 @@ slice of the proposal, everything a Contract Award document needs.
 Supplier's *address* is the one deliberate exception left un-frozen (looked
 up live at render time) - see the docx_export.py module docstring.
 
+**"View & Print"** (`app/docx_view.py`, no new DB table) is a browser
+view of the same rendered .docx the Download buttons produce - it calls
+`generate_contract_award()`/`generate_purchase_proposal_doc()` exactly as
+those routes do, then converts the *resulting bytes* to HTML (via
+`mammoth`) for direct viewing/printing, rather than a second hand-written
+template. Because it's a conversion of the already-rendered output, not a
+parallel template, any dynamic value, custom field, or department-profile
+override that appears in the downloaded .docx is guaranteed to appear
+here too. The Contract Award view additionally requires a `ContractAward`
+row to already exist (same as re-downloading) - it renders the persisted
+`contract_no`/`contract_date`, it doesn't accept a fresh one, so this
+route stays a read-only view of what's on record.
+
 ### ContractAward (persisted contract number, one per snapshot+firm)
 | field | type | notes |
 |---|---|---|

@@ -42,6 +42,14 @@ writing code.**
   .docx template), NOT raw `python-docx` composition. This lets non-technical
   procurement staff open the template in Word and edit letterhead / T&C /
   security-of-contract wording directly — the app only fills in data.
+  **Not replaced by the browser "View & Print" page** (`app/docx_view.py`,
+  post-MVP round 5 below) — that page converts the already-rendered .docx
+  to HTML for viewing/printing, it doesn't introduce a second document
+  format or editor. Considered Google Docs/Sheets as an offline-editable
+  alternative and rejected it: this is government procurement data (see
+  "Data sensitivity" below), and Google's "offline" mode still requires a
+  prior online sync to a Google account, so it isn't actually
+  network-independent the way this app needs to be.
 - **Packaging**: PyInstaller (or similar) for a standalone local launcher,
   once the app works.
 
@@ -114,6 +122,20 @@ app/
   docx_export.py                    # PP/CA document generation (docxtpl),
                                      # renders from ProposalSnapshot, not live
                                      # award_engine data
+  docx_view.py                        # "View & Print" - converts an already-
+                                       # generated PP/CA .docx (via mammoth) to
+                                       # HTML for viewing/printing straight from
+                                       # the browser, no download step. Reuses
+                                       # generate_contract_award()/
+                                       # generate_purchase_proposal_doc() as-is
+                                       # (same context/custom-field merge as the
+                                       # Download buttons) rather than a second
+                                       # hand-authored HTML template, so every
+                                       # dynamic/custom/department-profile tag
+                                       # is guaranteed to appear here too with
+                                       # nothing to keep in sync. One function,
+                                       # no new DB/model surface - removable
+                                       # cleanly if it doesn't prove useful
   number_words.py                     # amount-in-words, ordinal (for PP/CA)
   lpr_history.py                        # cross-tender Last Purchase Rate lookup
   business_rules.py                       # get-or-create singleton BusinessRules
@@ -230,6 +252,14 @@ app/
                                      # base.html - no sidebar, since every
                                      # sidebar link would just bounce right back
                                      # here while locked). See app/lock.py
+    docx_view.html                    # "View & Print" page (see app/docx_view.py)
+                                       # - also deliberately does NOT extend
+                                       # base.html: it's meant to look/print like
+                                       # the actual document (white page, no app
+                                       # chrome), not the app's dark theme. A
+                                       # sticky toolbar (Back / Print via
+                                       # window.print()) is hidden in @media
+                                       # print via plain CSS, no JS library
     items.html                   # "/items" — catalog list/search/create
     suppliers.html                 # "/suppliers" — list/search/create
     supplier_detail.html            # "/suppliers/{id}" — view/edit
@@ -306,12 +336,16 @@ app/
     purchase_proposal.html                  # "/tenders/{id}/proposal" — Generate/
                                              # Approve/Finalize actions, Excel/PP-doc
                                              # download, document-details form (CA
-                                             # downloads live on contract_award.html)
+                                             # downloads live on contract_award.html),
+                                             # + a "View & Print" link (docx_view.html)
+                                             # once a proposal exists
     contract_award.html                       # "/tenders/{id}/contract-award" — one
                                                # card per winning firm (single- or
                                                # multi-party), persisted contract
                                                # number, only reachable once the
-                                               # proposal is approved
+                                               # proposal is approved, + a "View &
+                                               # Print" link (docx_view.html) once
+                                               # that firm has an issued contract no.
     _comparative_summary_grid.html              # shared partial: view toggle (item/
                                                  # package) + grid (tie-aware
                                                  # highlighting) + Download

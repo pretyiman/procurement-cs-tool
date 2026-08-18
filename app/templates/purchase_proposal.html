@@ -7,6 +7,7 @@
   <a class="btn" href="/tenders/{{ tender.id }}/proposal/export">Export to Excel</a>
   {% if snapshot %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document">Download Purchase Proposal (Word)</a>
+  <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document/view" target="_blank">View &amp; Print</a>
   {% endif %}
   {% if tender.status.value in ("proposal_approved", "awarded") %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/contract-award">Contract Award &rarr;</a>

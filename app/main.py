@@ -36,6 +36,7 @@ from .custom_fields import (
 from .db import create_db_and_tables, engine, get_session
 from .document_labels import get_document_labels
 from .docx_export import generate_contract_award, generate_purchase_proposal_doc
+from .docx_view import docx_bytes_to_html
 from .icons import icon
 from .lock import engage_lock, get_lock_settings, is_unlocked, set_passcode, try_unlock
 from .lpr_history import get_last_purchase_rate
@@ -1559,6 +1560,46 @@ def download_all_contract_drafts(tender_id: int, session: Session = Depends(get_
     )
 
 
+@app.get("/tenders/{tender_id}/proposal/contract/{supplier_id}/view")
+def view_contract_draft(
+    request: Request, tender_id: int, supplier_id: int, session: Session = Depends(get_session)
+):
+    """Browser view/print of the same Contract Award .docx the Download
+    button produces - see docx_view.py. Renders whatever contract number
+    was already saved (by a prior Download), rather than accepting one
+    fresh here, so this stays a read-only view of what's on record."""
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+    supplier = session.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(404, "Supplier not found")
+
+    snapshot = _require_approved_snapshot(session, tender)
+    group = next((g for g in snapshot.firm_groups if g.supplier_id == supplier_id), None)
+    if group is None:
+        raise HTTPException(400, "This supplier has no items awarded on this tender")
+    award = get_contract_award(session, snapshot.id, supplier_id)
+    if award is None:
+        raise HTTPException(400, "Download the Contract Award once first to issue a contract number")
+
+    rules = get_business_rules(session)
+    content = generate_contract_award(
+        tender, group, supplier, contract_no=award.contract_no, rules=rules,
+        contract_date=award.contract_date,
+        custom_fields=custom_fields_dict_for_tender(session, tender),
+    )
+    return templates.TemplateResponse(
+        request,
+        "docx_view.html",
+        {
+            "title": f"Contract Award - {group.supplier_name}",
+            "back_url": f"/tenders/{tender_id}/contract-award",
+            "doc_html": docx_bytes_to_html(content),
+        },
+    )
+
+
 @app.post("/tenders/{tender_id}/document-details")
 def update_document_details(
     tender_id: int,
@@ -1613,6 +1654,33 @@ def download_pp_document(tender_id: int, session: Session = Depends(get_session)
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/tenders/{tender_id}/proposal/pp-document/view")
+def view_pp_document(request: Request, tender_id: int, session: Session = Depends(get_session)):
+    """Browser view/print of the same Purchase Proposal .docx the Download
+    button produces - see docx_view.py."""
+    tender = session.get(Tender, tender_id)
+    if tender is None:
+        raise HTTPException(404, "Tender not found")
+
+    snapshot = get_snapshot(session, tender_id)
+    if snapshot is None:
+        raise HTTPException(400, "Generate the proposal first")
+
+    suppliers_by_id = {g.supplier_id: session.get(Supplier, g.supplier_id) for g in snapshot.firm_groups}
+    content = generate_purchase_proposal_doc(
+        tender, snapshot, suppliers_by_id, custom_fields=custom_fields_dict_for_tender(session, tender)
+    )
+    return templates.TemplateResponse(
+        request,
+        "docx_view.html",
+        {
+            "title": f"Purchase Proposal - {tender.inquiry_no}",
+            "back_url": f"/tenders/{tender_id}/proposal",
+            "doc_html": docx_bytes_to_html(content),
+        },
     )
 
 
