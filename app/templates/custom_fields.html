@@ -7,10 +7,10 @@
   Define a name/value text pair here, and it becomes usable as <code>{{ '{{ tag_name }}' }}</code> directly in the Purchase Proposal / Contract Award Word templates - no code change needed. Only for text that's the <strong>same on every document</strong> (a designation, a boilerplate phrase); real per-contract data (rates, firm names, dates, totals) always comes from the actual RFQ automatically and can't be overridden here.
 </p>
 
-{% if error and not open_popup %}
-<div class="card notice-error"><strong>Couldn't save that.</strong> {{ error }}</div>
+{% if manage_tags_error and not manage_tags_open %}
+<div class="card notice-error"><strong>Couldn't save that.</strong> {{ manage_tags_error }}</div>
 {% endif %}
-{% if saved and not open_popup %}
+{% if manage_tags_saved and not manage_tags_open %}
 <div class="card notice-exists"><strong>Saved.</strong> New documents will use the updated fields.</div>
 {% endif %}
 
@@ -82,92 +82,7 @@
   </table>
 </div>
 
-<dialog id="manage-tags-dialog">
-  <form method="post" action="/settings/custom-fields/manage-tags" id="manage-tags-form">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem">
-      <div>
-        <h2 style="margin:0 0 0.35rem">Manage Tags</h2>
-        <p class="muted" style="margin:0">Editing: <strong>{{ selected_dept_name }}</strong></p>
-      </div>
-      <button type="button" class="btn-secondary" id="manage-tags-close" style="padding:0.3rem 0.7rem;font-size:0.85rem;">Close</button>
-    </div>
-
-    {% if error %}
-    <div class="card notice-error" style="margin-bottom:1rem"><strong>Couldn't save that.</strong> {{ error }}</div>
-    {% endif %}
-    {% if saved %}
-    <div class="card notice-exists" style="margin-bottom:1rem"><strong>Saved.</strong> New documents will use the updated fields.</div>
-    {% endif %}
-
-    <div class="field" style="max-width:320px;margin-bottom:1.25rem">
-      <label for="manage-department-select">Department</label>
-      <select id="manage-department-select" name="department_id" onchange="window.location = '/settings/custom-fields?open=1&department_id=' + encodeURIComponent(this.value);">
-        <option value="" {{ 'selected' if selected_dept_id is none else '' }}>Organization-wide</option>
-        {% for row in scope_rows[1:] %}
-        <option value="{{ row.id }}" {{ 'selected' if row.id == selected_dept_id else '' }}>{{ row.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div id="manage-tags-rows">
-      {% for r in manage_rows %}
-      <div class="field" style="margin-bottom:0.85rem">
-        <label for="manage_{{ r.tag_name }}">
-          {{ r.description if r.description else 'Custom field' }}<br>
-          <code style="font-weight:normal">{{ r.tag_name }}</code>
-        </label>
-        <input type="text" id="manage_{{ r.tag_name }}" name="{{ r.tag_name }}" value="{{ r.value }}" placeholder="Leave blank to remove this value">
-      </div>
-      {% endfor %}
-    </div>
-
-    <div id="manage-tags-new-rows"></div>
-
-    <p style="margin:0.5rem 0 1.25rem">
-      <button type="button" class="btn-secondary" id="manage-tags-add-row" style="padding:0.35rem 0.8rem;font-size:0.85rem;">+ Add another field</button>
-    </p>
-
-    <button type="submit">Save</button>
-  </form>
-</dialog>
-
 <button type="button" class="btn-secondary" id="manage-tags-open" style="margin-bottom:1.5rem">Manage Tags</button>
 
-<style>
-  dialog#manage-tags-dialog {
-    width: min(720px, 92vw); max-height: 85vh; overflow-y: auto;
-    background: var(--color-surface); color: var(--color-text);
-    border: 1px solid var(--color-divider); border-radius: var(--radius-md, 10px);
-    padding: 1.5rem;
-  }
-  dialog#manage-tags-dialog::backdrop { background: rgba(0,0,0,0.55); }
-  .new-tag-row { display: flex; gap: 0.6rem; align-items: flex-end; margin-bottom: 0.85rem; }
-  .new-tag-row .field { flex: 1; margin-bottom: 0; }
-</style>
-
-<script>
-  (function () {
-    var dialog = document.getElementById('manage-tags-dialog');
-    var newRowsContainer = document.getElementById('manage-tags-new-rows');
-
-    document.getElementById('manage-tags-open').addEventListener('click', function () { dialog.showModal(); });
-    document.getElementById('manage-tags-close').addEventListener('click', function () { dialog.close(); });
-
-    document.getElementById('manage-tags-add-row').addEventListener('click', function () {
-      var row = document.createElement('div');
-      row.className = 'new-tag-row';
-      row.innerHTML =
-        '<div class="field"><label>Tag name</label>' +
-        '<input type="text" name="new_tag_name" placeholder="e.g. store_keeper_name"></div>' +
-        '<div class="field" style="flex:2"><label>Value</label>' +
-        '<input type="text" name="new_tag_value"></div>' +
-        '<button type="button" class="btn-danger" style="padding:0.3rem 0.7rem;font-size:0.85rem;" onclick="this.closest(\'.new-tag-row\').remove()">Remove</button>';
-      newRowsContainer.appendChild(row);
-    });
-
-    {% if open_popup %}
-    dialog.showModal();
-    {% endif %}
-  })();
-</script>
+{% include "_manage_tags_dialog.html" %}
 {% endblock %}

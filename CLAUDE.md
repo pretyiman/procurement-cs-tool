@@ -298,7 +298,30 @@ app/
                                               # forms layout (two similarly-labelled
                                               # "Save" buttons in the same card, which
                                               # is what caused a real saved-value-not-
-                                              # showing report - see PLAN.md)
+                                              # showing report - see PLAN.md). The dialog
+                                              # itself lives in
+                                              # _manage_tags_dialog.html (shared partial -
+                                              # see below) so the Purchase Proposal page
+                                              # can embed the exact same popup
+    _manage_tags_dialog.html                    # shared partial - the "Manage Tags"
+                                                 # <dialog>/style/script, included by both
+                                                 # custom_fields.html and
+                                                 # purchase_proposal.html so there's one
+                                                 # popup implementation, not two kept in
+                                                 # sync by hand. Expects manage_rows/
+                                                 # scope_rows/selected_dept_id/
+                                                 # selected_dept_name (from
+                                                 # custom_fields.manage_tags_context()) and
+                                                 # manage_tags_error/manage_tags_saved/
+                                                 # manage_tags_open/manage_tags_return_to
+                                                 # in context, plus a page-defined trigger
+                                                 # element with id="manage-tags-open"
+                                                 # somewhere on the including page. The
+                                                 # department dropdown's onchange and the
+                                                 # form's hidden return_to field both target
+                                                 # manage_tags_return_to, so Save/switch-
+                                                 # department land back on whichever page
+                                                 # opened the popup, not always Settings
     settings_lock.html                         # "/settings/lock" — NEW, set/change/
                                                 # clear the optional local passcode
                                                 # (app/lock.py). Blank "Save" is a
@@ -365,7 +388,15 @@ app/
                                              # download, document-details form (CA
                                              # downloads live on contract_award.html),
                                              # + a "View & Print" link (docx_view.html)
-                                             # once a proposal exists
+                                             # once a proposal exists, + a "Manage Tags"
+                                             # button embedding the same popup
+                                             # custom_fields.html uses
+                                             # (_manage_tags_dialog.html) - defaults to
+                                             # this RFQ's own department (no manual
+                                             # picking needed) so tags can be viewed/
+                                             # added/edited right here before generating
+                                             # or downloading the PP, not just from
+                                             # Settings
     contract_award.html                       # "/tenders/{id}/contract-award" — one
                                                # card per winning firm (single- or
                                                # multi-party), persisted contract

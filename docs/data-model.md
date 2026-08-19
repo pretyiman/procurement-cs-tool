@@ -270,6 +270,33 @@ real "I saved values and they're not there" bug report (see PLAN.md
 (`custom_fields_dict_for_tender()`) was never the problem and is
 unchanged by this round.
 
+**Embedded on the Purchase Proposal page too (round 7)**, not just
+Settings - `custom_fields.manage_tags_context(session, department_id)`
+holds the scope-resolution logic (which tags, which values, the dropdown
+options) as one shared function, and the popup markup itself lives in
+`app/templates/_manage_tags_dialog.html`, a partial both
+`custom_fields.html` and `purchase_proposal.html` `{% include %}` - one
+implementation, not two hand-kept-in-sync copies. A `manage_tags_return_to`
+value (passed as a hidden form field and used as the department-
+dropdown's reload target) means Save and "switch department" both land
+back on whichever page opened the popup, not always Settings - validated
+server-side as a same-app relative path before being used as a redirect
+target. On the Purchase Proposal page the popup defaults to *that RFQ's
+own department* (`tender.department_id`) with no manual picking needed,
+so tags can be reviewed/added/edited immediately before generating or
+downloading the PP.
+
+A real bug surfaced while wiring this up: `CustomField.group_id=None`
+means two different things depending on context - "the organization-wide
+scope" and "this department has no `CustomFieldGroup` of its own yet" -
+and the original context-building code conflated them, resolving a
+group-less department's tags via `list_custom_fields(session,
+group_id=None)`, i.e. accidentally reading the *global* fields for a
+department that had never had anything set. Fixed by branching
+explicitly on `selected_dept_id is None` before deciding which
+`group_id` to query, rather than letting a missing group silently
+collapse to the same `group_id=None` lookup organization-wide uses.
+
 ### ProposalSnapshot (frozen Purchase Proposal, one per tender)
 | field | type | notes |
 |---|---|---|

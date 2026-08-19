@@ -515,3 +515,96 @@ def test_delete_group_route_resets_a_departments_profile():
             assert session.exec(select(CustomField)).all() == []
     finally:
         app.dependency_overrides.clear()
+
+
+# --- "Manage Tags" embedded on the Purchase Proposal page --------------------
+
+
+def test_pp_page_manage_tags_defaults_to_the_tenders_own_department():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            tender = Tender(inquiry_no="T-1", department_id=dept.id)
+            session.add(tender)
+            session.commit()
+            tender_id = tender.id
+
+            group = custom_fields_module.create_group(session, "Department A Profile", dept.id)
+            custom_fields_module.bulk_set_fields(session, group.id, {"indentor_name": "Dept A Officer"})
+
+        resp = client.get(f"/tenders/{tender_id}/proposal")
+        assert resp.status_code == 200
+        assert "Department A" in resp.text
+        assert "Dept A Officer" in resp.text  # pre-filled without picking the department manually
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pp_page_manage_tags_dropdown_can_override_the_default_scope():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            dept = Department(name="Department A")
+            session.add(dept)
+            session.commit()
+            tender = Tender(inquiry_no="T-1", department_id=dept.id)
+            session.add(tender)
+            session.commit()
+            tender_id = tender.id
+            custom_fields_module.bulk_set_fields(session, None, {"pp_paying_authority": "Org Wide Finance"})
+
+        # No department_id in the query string -> defaults to the tender's own department (empty, no profile).
+        resp = client.get(f"/tenders/{tender_id}/proposal")
+        assert "Org Wide Finance" not in resp.text
+
+        # Explicitly picking organization-wide (department_id="") shows the global value instead.
+        resp = client.get(f"/tenders/{tender_id}/proposal?department_id=")
+        assert "Org Wide Finance" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pp_page_manage_tags_save_returns_to_the_pp_page_not_settings():
+    client, engine = _make_client()
+    try:
+        with Session(engine) as session:
+            tender = Tender(inquiry_no="T-1")
+            session.add(tender)
+            session.commit()
+            tender_id = tender.id
+
+        resp = client.post(
+            "/settings/custom-fields/manage-tags",
+            data={
+                "department_id": "",
+                "pp_paying_authority": "Finance Directorate",
+                "return_to": f"/tenders/{tender_id}/proposal",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith(f"/tenders/{tender_id}/proposal?")
+
+        resp = client.get(f"/tenders/{tender_id}/proposal")
+        assert "Finance Directorate" in resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_manage_tags_rejects_a_return_to_outside_the_app():
+    """Defense in depth: return_to only ever accepts a same-app relative
+    path, never an absolute/external URL, even though this is a trusted
+    local single-user app with no session cookies to leak."""
+    client, engine = _make_client()
+    try:
+        resp = client.post(
+            "/settings/custom-fields/manage-tags",
+            data={"department_id": "", "return_to": "//evil.example.com/steal"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"].startswith("/settings/custom-fields?")
+    finally:
+        app.dependency_overrides.clear()

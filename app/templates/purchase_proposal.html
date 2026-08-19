@@ -9,9 +9,13 @@
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document">Download Purchase Proposal (Word)</a>
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/proposal/pp-document/view" target="_blank">View &amp; Print</a>
   {% endif %}
+  <button type="button" class="btn-secondary" id="manage-tags-open">Manage Tags</button>
   {% if tender.status.value in ("proposal_approved", "awarded") %}
   <a class="btn btn-secondary" href="/tenders/{{ tender.id }}/contract-award">Contract Award &rarr;</a>
   {% endif %}
+</p>
+<p class="muted" style="margin-top:-0.5rem">
+  Tags currently showing in Manage Tags: <strong>{{ selected_dept_name }}</strong>{% if tender.department_id is none %} (this RFQ has no department assigned yet - set one below to give it its own tags){% endif %}.
 </p>
 {% set current = "proposal" %}
 {% include "_phase_nav.html" %}
@@ -241,4 +245,6 @@
     buildCreatedItem: function (data) { return { id: data.id, label: data.name }; }
   });
 </script>
+
+{% include "_manage_tags_dialog.html" %}
 {% endblock %}

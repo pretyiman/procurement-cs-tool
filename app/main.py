@@ -25,7 +25,7 @@ from .custom_fields import (
     custom_fields_dict_for_tender,
     delete_group,
     list_custom_fields,
-    list_groups,
+    manage_tags_context,
     resolve_group_for_department,
     tag_document_scope,
     validate_tag_name,
@@ -1349,7 +1349,15 @@ def set_award_override(
 
 
 @app.get("/tenders/{tender_id}/proposal", response_class=HTMLResponse)
-def purchase_proposal_view(tender_id: int, request: Request, session: Session = Depends(get_session)):
+def purchase_proposal_view(
+    tender_id: int,
+    request: Request,
+    department_id: Optional[str] = None,
+    error: str = "",
+    saved: str = "",
+    open_popup_param: str = Query("", alias="open"),
+    session: Session = Depends(get_session),
+):
     tender = session.get(Tender, tender_id)
     if tender is None:
         raise HTTPException(404, "Tender not found")
@@ -1364,6 +1372,19 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
         all_have_contract_award = all_firms_have_contract_award(session, snapshot.id)
     departments = session.exec(select(Department).order_by(Department.name)).all()
     departments_json = _json_for_script([{"id": d.id, "label": d.name} for d in departments])
+
+    # "Manage Tags" popup, embedded so a user can view/edit this RFQ's
+    # department's tags without leaving the Purchase Proposal page before
+    # generating it - see custom_fields.manage_tags_context(). Defaults to
+    # the tender's own department unless the popup's own dropdown picked
+    # a different scope (?department_id= present, even if blank for
+    # organization-wide).
+    if department_id is None:
+        selected_dept_id = tender.department_id  # not in the URL at all - default to this RFQ's own department
+    elif department_id == "":
+        selected_dept_id = None  # explicitly picked "Organization-wide" in the popup's dropdown
+    else:
+        selected_dept_id = int(department_id)
     return templates.TemplateResponse(
         request,
         "purchase_proposal.html",
@@ -1374,6 +1395,11 @@ def purchase_proposal_view(tender_id: int, request: Request, session: Session = 
             "contract_awards_by_supplier": contract_awards_by_supplier,
             "all_have_contract_award": all_have_contract_award,
             "departments_json": departments_json,
+            **manage_tags_context(session, selected_dept_id),
+            "manage_tags_error": error,
+            "manage_tags_saved": bool(saved),
+            "manage_tags_open": bool(open_popup_param),
+            "manage_tags_return_to": f"/tenders/{tender_id}/proposal",
         },
     )
 
@@ -1856,49 +1882,7 @@ def custom_fields_form(
     pp_suggestions = _suggestions(SUGGESTED_PP_FIELDS)
     ca_suggestions = _suggestions(SUGGESTED_CA_FIELDS)
 
-    # "Manage Tags" popup - one scope at a time: organization-wide
-    # (selected_dept_id=None) or one department's profile. CS fields are
-    # deliberately only offered organization-wide - see SUGGESTED_CS_FIELDS.
     selected_dept_id = int(department_id) if department_id.strip() else None
-    selected_dept_name = "Organization-wide"
-    if selected_dept_id is not None:
-        selected_dept = session.get(Department, selected_dept_id)
-        if selected_dept is None:
-            selected_dept_id = None  # stale/deleted department in the URL - fall back cleanly
-        else:
-            selected_dept_name = selected_dept.name
-
-    scope_group = resolve_group_for_department(session, selected_dept_id) if selected_dept_id else None
-    scope_group_id = scope_group.id if scope_group else None
-    scope_existing = {f.tag_name: f.value for f in list_custom_fields(session, group_id=scope_group_id)}
-    scope_suggested = {}
-    if selected_dept_id is None:
-        scope_suggested.update(SUGGESTED_CS_FIELDS)
-    scope_suggested.update(SUGGESTED_PP_FIELDS)
-    scope_suggested.update(SUGGESTED_CA_FIELDS)
-    manage_rows = [
-        {"tag_name": n, "description": d, "value": scope_existing.get(n, "")} for n, d in scope_suggested.items()
-    ] + [
-        {"tag_name": n, "description": "", "value": v} for n, v in scope_existing.items() if n not in scope_suggested
-    ]
-
-    groups = list_groups(session)
-    group_by_dept_id = {g.department_id: g for g in groups}
-    all_departments = session.exec(select(Department).order_by(Department.name)).all()
-    scope_rows = [
-        {"id": "", "name": "Organization-wide", "count": len(list_custom_fields(session, group_id=None)), "group_id": None}
-    ]
-    for d in all_departments:
-        g = group_by_dept_id.get(d.id)
-        scope_rows.append(
-            {
-                "id": d.id,
-                "name": d.name,
-                "count": len(list_custom_fields(session, group_id=g.id)) if g else 0,
-                "group_id": g.id if g else None,
-            }
-        )
-
     return templates.TemplateResponse(
         request,
         "custom_fields.html",
@@ -1906,13 +1890,11 @@ def custom_fields_form(
             "cs_suggestions": cs_suggestions,
             "pp_suggestions": pp_suggestions,
             "ca_suggestions": ca_suggestions,
-            "error": error,
-            "saved": bool(saved),
-            "manage_rows": manage_rows,
-            "selected_dept_id": selected_dept_id,
-            "selected_dept_name": selected_dept_name,
-            "scope_rows": scope_rows,
-            "open_popup": bool(open_popup_param),
+            **manage_tags_context(session, selected_dept_id),
+            "manage_tags_error": error,
+            "manage_tags_saved": bool(saved),
+            "manage_tags_open": bool(open_popup_param),
+            "manage_tags_return_to": "/settings/custom-fields",
         },
     )
 
@@ -1922,12 +1904,17 @@ async def manage_tags_route(request: Request, session: Session = Depends(get_ses
     """The "Manage Tags" popup's single Save button - every tag for one
     scope (organization-wide, or one department's profile) in one submit,
     including any new ad-hoc rows added via "+ Add another field" without
-    leaving the page (see custom_fields.html). Auto-creates the
+    leaving the page (see _manage_tags_dialog.html). Auto-creates the
     department's CustomFieldGroup on first save - no separate "create
-    profile" step required."""
+    profile" step required. Redirects back to wherever the popup was
+    opened from (Settings, or e.g. the Purchase Proposal page) via the
+    hidden "return_to" field, not always to Settings."""
     form = await request.form()
     department_id_raw = str(form.get("department_id", "")).strip()
     department_id = int(department_id_raw) if department_id_raw else None
+    return_to = str(form.get("return_to") or "/settings/custom-fields")
+    if not return_to.startswith("/") or return_to.startswith("//"):
+        return_to = "/settings/custom-fields"  # only ever a same-app relative path
 
     def _redirect(*, error: str = "", saved: bool = False) -> RedirectResponse:
         qs = f"department_id={department_id}" if department_id is not None else ""
@@ -1936,7 +1923,7 @@ async def manage_tags_route(request: Request, session: Session = Depends(get_ses
         elif saved:
             qs += ("&" if qs else "") + "saved=1"
         qs += ("&" if qs else "") + "open=1"
-        return RedirectResponse(f"/settings/custom-fields?{qs}", status_code=303)
+        return RedirectResponse(f"{return_to}?{qs}", status_code=303)
 
     group_id = None
     if department_id is not None:

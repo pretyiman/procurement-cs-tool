@@ -720,6 +720,60 @@ clears a department back to zero tags.
 
 ---
 
+## Post-MVP round 7 ("Manage Tags" embedded on the Purchase Proposal page)
+
+Follow-on request, same session as round 6: view/edit tags without
+leaving the RFQ - specifically before generating the PP, not just from
+Settings. Rather than duplicate the popup, extracted its logic into one
+reusable piece:
+
+- `custom_fields.manage_tags_context(session, department_id)` - the
+  scope-resolution logic (which tags, which values, the department
+  dropdown's options) that used to live inline in the Settings route,
+  now shared by every page that embeds the popup.
+- `app/templates/_manage_tags_dialog.html` - the `<dialog>`/style/script
+  itself, extracted from `custom_fields.html` into a partial both pages
+  `{% include %}`. A `manage_tags_return_to` context value (a hidden
+  form field + the department-dropdown's reload target) means Save and
+  "switch department" both land back on whichever page opened the
+  popup - Settings stays Settings, the Purchase Proposal page stays on
+  itself - instead of always bouncing to Settings. `manage-tags/route`
+  validates `return_to` is a same-app relative path (defence in depth,
+  not because this single-user local app has sessions/cookies worth
+  protecting).
+- `purchase_proposal.html` gets a "Manage Tags" button (visible even in
+  `draft` status, before a proposal is ever generated) that defaults the
+  popup to *this RFQ's own department* automatically - no manual
+  picking needed for the common case - while the dropdown still lets it
+  be pointed at any other department or organization-wide.
+
+Caught and fixed a real bug while wiring this up, found only because a
+department with tags set showed correctly but a department *without*
+any group yet incorrectly displayed the organization-wide values:
+`group_id=None` on `CustomField` means two different things depending on
+context - "the global scope" and "this department has no group of its
+own yet" - and the original `manage_tags_context()` conflated them,
+resolving a group-less department's tags by literally calling
+`list_custom_fields(session, group_id=None)`, which is the *global*
+lookup. Fixed by branching explicitly: organization-wide always reads
+`group_id=None`; a department reads its own group's fields if one
+exists, otherwise an empty dict - never the global rows.
+
+`pytest tests/` (171 passed, 5 skipped) passes as of this round; new
+tests cover the PP page defaulting to the tender's own department, the
+dropdown overriding that default, `return_to` landing back on the PP
+page instead of Settings, and the same regression check as a test (a
+department with no group must show blank fields, not the organization-
+wide ones). Live-verified via Playwright on a real draft tender: the
+Manage Tags button appears before any proposal is generated, defaults to
+that tender's own department, a saved value persists and redirects back
+to the PP page (confirmed by screenshot - the PP page's own content is
+still visible behind the dialog), and a separate department's real
+pre-existing tag values (entered by the user, not seeded/test data) were
+confirmed to still render correctly after this round's changes.
+
+---
+
 ## Deferred to v2 (explicitly out of MVP scope)
 
 - Multi-user / online hosting, login & roles

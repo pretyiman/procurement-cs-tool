@@ -44,7 +44,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import CustomField, CustomFieldGroup, Tender
+from .models import CustomField, CustomFieldGroup, Department, Tender
 
 # Every top-level (or item/firm-group nested) key docx_export.py's context
 # dicts already use - conservatively reserved even though most of these
@@ -307,3 +307,68 @@ def bulk_set_fields(session: Session, group_id: Optional[int], values: dict) -> 
                 CustomField(group_id=group_id, tag_name=tag_name, label=tag_name.replace("_", " ").title(), value=value)
             )
     session.commit()
+
+
+def manage_tags_context(session: Session, department_id: Optional[int]) -> dict:
+    """Everything the "Manage Tags" popup (app/templates/_manage_tags_dialog.html)
+    needs for one scope - shared by every page that embeds it (Settings >
+    Custom Fields, and the Purchase Proposal page scoped to that RFQ's own
+    department by default), so the popup's logic lives in exactly one
+    place regardless of how many pages offer it.
+
+    `department_id=None` means organization-wide; an id for a department
+    that no longer exists quietly falls back to organization-wide rather
+    than erroring (e.g. a stale bookmarked/query-string URL)."""
+    selected_dept_id = department_id
+    selected_dept_name = "Organization-wide"
+    if selected_dept_id is not None:
+        dept = session.get(Department, selected_dept_id)
+        if dept is None:
+            selected_dept_id = None
+        else:
+            selected_dept_name = dept.name
+
+    # group_id=None on CustomField means "the global/organization-wide
+    # row" - so a department with no CustomFieldGroup of its own must
+    # show *no* existing values (nothing set for it yet), not silently
+    # fall through to the global ones just because both happen to be
+    # represented by group_id=None internally.
+    if selected_dept_id is None:
+        existing = {f.tag_name: f.value for f in list_custom_fields(session, group_id=None)}
+    else:
+        group = resolve_group_for_department(session, selected_dept_id)
+        existing = {f.tag_name: f.value for f in list_custom_fields(session, group_id=group.id)} if group else {}
+    suggested = {}
+    if selected_dept_id is None:
+        suggested.update(SUGGESTED_CS_FIELDS)
+    suggested.update(SUGGESTED_PP_FIELDS)
+    suggested.update(SUGGESTED_CA_FIELDS)
+    manage_rows = [
+        {"tag_name": n, "description": d, "value": existing.get(n, "")} for n, d in suggested.items()
+    ] + [
+        {"tag_name": n, "description": "", "value": v} for n, v in existing.items() if n not in suggested
+    ]
+
+    groups = list_groups(session)
+    group_by_dept_id = {g.department_id: g for g in groups}
+    all_departments = session.exec(select(Department).order_by(Department.name)).all()
+    scope_rows = [
+        {"id": "", "name": "Organization-wide", "count": len(list_custom_fields(session, group_id=None)), "group_id": None}
+    ]
+    for d in all_departments:
+        g = group_by_dept_id.get(d.id)
+        scope_rows.append(
+            {
+                "id": d.id,
+                "name": d.name,
+                "count": len(list_custom_fields(session, group_id=g.id)) if g else 0,
+                "group_id": g.id if g else None,
+            }
+        )
+
+    return {
+        "manage_rows": manage_rows,
+        "selected_dept_id": selected_dept_id,
+        "selected_dept_name": selected_dept_name,
+        "scope_rows": scope_rows,
+    }
